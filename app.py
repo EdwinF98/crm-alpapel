@@ -272,7 +272,7 @@ def main_app():
             </div>
             """,
             unsafe_allow_html=True
-        )
+        )  
     
     with col_logout:
         if st.button("🔒 Cerrar Sesión", use_container_width=True, type="primary"):
