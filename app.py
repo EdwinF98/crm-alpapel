@@ -820,7 +820,7 @@ def seleccionar_cliente_para_detalles(nit_cliente):
         st.error(f"❌ Error cargando datos del cliente: {e}")
 
 def mostrar_panel_cliente_detallado():
-    """Muestra el panel detallado del cliente seleccionado - VERSIÓN MEJORADA"""
+    """Muestra el panel detallado del cliente seleccionado - VERSIÓN CORREGIDA"""
     
     datos = st.session_state.datos_cliente_completos
     cliente = datos['cliente']
@@ -855,23 +855,23 @@ def mostrar_panel_cliente_detallado():
     st.text_input("Dirección", cliente.get('direccion', 'No disponible') or 'No disponible', disabled=True, key="direccion_display")
     
     # ====================
-    # SECCIÓN 2: RESUMEN CARTERA
+    # SECCIÓN 2: RESUMEN CARTERA - ✅ CORREGIDO
     # ====================
     st.subheader("💰 Resumen de Cartera")
     
     col_res1, col_res2, col_res3, col_res4 = st.columns(4)
     
     with col_res1:
-        st.metric("Total Cartera", f"${resumen['total_cartera']:,.0f}", key="metric_total_cartera")
+        st.metric("Total Cartera", f"${resumen['total_cartera']:,.0f}")
     
     with col_res2:
-        st.metric("Cartera en Mora", f"${resumen['cartera_mora']:,.0f}", key="metric_cartera_mora")
+        st.metric("Cartera en Mora", f"${resumen['cartera_mora']:,.0f}")
     
     with col_res3:
-        st.metric("Facturas Totales", resumen['total_facturas'], key="metric_facturas_total")
+        st.metric("Facturas Totales", resumen['total_facturas'])
     
     with col_res4:
-        st.metric("Facturas Vencidas", resumen['facturas_vencidas'], key="metric_facturas_vencidas")
+        st.metric("Facturas Vencidas", resumen['facturas_vencidas'])
     
     # ====================
     # SECCIÓN 3: DETALLE DE FACTURAS
@@ -924,7 +924,7 @@ def mostrar_panel_cliente_detallado():
         st.info("📝 No hay gestiones registradas para este cliente")
     
     # ====================
-    # SECCIÓN 5: ACCIONES RÁPIDAS - VERSIÓN MEJORADA
+    # SECCIÓN 5: ACCIONES RÁPIDAS
     # ====================
     st.markdown("---")
     st.subheader("🚀 Acciones Rápidas")
@@ -936,7 +936,6 @@ def mostrar_panel_cliente_detallado():
             telefono = cliente.get('telefono') or cliente.get('celular')
             if telefono and telefono != 'No disponible':
                 st.success(f"📞 Marcando: {telefono}")
-                # Aquí podrías integrar con sistema de llamadas
             else:
                 st.warning("No hay número de teléfono disponible")
     
@@ -945,15 +944,12 @@ def mostrar_panel_cliente_detallado():
             email = cliente.get('email')
             if email and email != 'No disponible':
                 st.success(f"📧 Email: {email}")
-                # Aquí podrías integrar con cliente de email
             else:
                 st.warning("No hay email disponible")
     
     with col_acc3:
         if st.button("📋 Ir a Gestión", use_container_width=True, key="btn_ir_gestion"):
-            # ✅ VERIFICAR QUE TENEMOS LOS DATOS NECESARIOS
             if st.session_state.cliente_seleccionado:
-                # Guardar el cliente seleccionado para la gestión
                 st.session_state.cliente_para_gestion = st.session_state.cliente_seleccionado
                 st.session_state.ir_a_gestion = True
                 st.success("🔄 Navegando a Gestión...")
