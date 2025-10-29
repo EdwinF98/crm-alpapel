@@ -108,43 +108,44 @@ def login_section():
         </div>
         """, unsafe_allow_html=True)
         
-        # Contenedor del formulario compacto
-        with st.container():
-            # ✅ FIX: Key único para el formulario
-            with st.form(f"login_form_{int(time.time())}", clear_on_submit=False):
-                st.markdown("### Iniciar Sesión")
-                
-                email = st.text_input("📧 Email", placeholder="usuario@alpapel.com", key="login_email")
-                password = st.text_input("🔒 Contraseña", type="password", placeholder="Ingresa tu contraseña", key="login_password")
-                
-                # Botón de login centrado
-                login_button = st.form_submit_button("🚀 Ingresar al Sistema", use_container_width=True, type="primary")
-                
-                if login_button:
-                    if email and password:
-                        allowed_domains = ['@alpapel.com', '@gmail.com', '@hotmail.com']
-                        if not any(email.endswith(domain) for domain in allowed_domains):
-                            st.error("❌ Dominio de email no permitido")
-                        else:
-                            with st.spinner("🔐 Autenticando..."):
-                                time.sleep(1)
-                                success, message, user_data = st.session_state.user_manager.autenticar_usuario(
-                                    email, password, "web_app", "Streamlit_CRM"
-                                )
-                                
-                                if success:
-                                    st.session_state.user = user_data
-                                    st.session_state.db.set_current_user(user_data)
-                                    st.session_state.auth_manager.current_user = user_data
-                                    st.session_state.auth_manager.is_authenticated = True
-                                    st.session_state.auth_manager.session_start = time.time()
-                                    st.success(f"✅ ¡Bienvenid@ {user_data['nombre_completo']}!")
-                                    time.sleep(1)
-                                    st.rerun()
-                                else:
-                                    st.error(f"❌ {message}")
+        # ✅ FIX: Crear el formulario SIN key dinámico (esto causa problemas)
+        with st.form("login_form", clear_on_submit=True):
+            st.markdown("### Iniciar Sesión")
+            
+            email = st.text_input("📧 Email", placeholder="usuario@alpapel.com", key="login_email")
+            password = st.text_input("🔒 Contraseña", type="password", placeholder="Ingresa tu contraseña", key="login_password")
+            
+            # Botón de login centrado
+            login_button = st.form_submit_button("🚀 Ingresar al Sistema", use_container_width=True, type="primary")
+            
+            if login_button:
+                if email and password:
+                    allowed_domains = ['@alpapel.com', '@gmail.com', '@hotmail.com']
+                    if not any(email.endswith(domain) for domain in allowed_domains):
+                        st.error("❌ Dominio de email no permitido")
                     else:
-                        st.warning("⚠️ Por favor ingresa email y contraseña")
+                        with st.spinner("🔐 Autenticando..."):
+                            # ✅ REDUCIR tiempo de espera
+                            time.sleep(0.5)
+                            success, message, user_data = st.session_state.user_manager.autenticar_usuario(
+                                email, password, "web_app", "Streamlit_CRM"
+                            )
+                            
+                            if success:
+                                st.session_state.user = user_data
+                                st.session_state.db.set_current_user(user_data)
+                                st.session_state.auth_manager.current_user = user_data
+                                st.session_state.auth_manager.is_authenticated = True
+                                st.session_state.auth_manager.session_start = time.time()
+                                st.success(f"✅ ¡Bienvenid@ {user_data['nombre_completo']}!")
+                                
+                                # ✅ FIX CRÍTICO: Rerun inmediato y forzado
+                                time.sleep(0.5)
+                                st.rerun()
+                            else:
+                                st.error(f"❌ {message}")
+                else:
+                    st.warning("⚠️ Por favor ingresa email y contraseña")
         
         # Enlaces de ayuda
         st.markdown("---")
