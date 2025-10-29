@@ -51,7 +51,6 @@ def main():
             login_section()
         else:
             main_app()
-            
     except Exception as e:
         st.error("""
         ⚠️ **Error en la aplicación**
@@ -59,16 +58,6 @@ def main():
         Por favor recarga la página. Si el problema persiste, contacta al administrador.
         """)
         st.stop()
-    set_custom_page_config()
-    init_session_state()
-    
-    # Aplicar estilos corporativos
-    st.markdown(STREAMLIT_STYLES, unsafe_allow_html=True)
-    
-    if st.session_state.user is None:
-        login_section()
-    else:
-        main_app()
 
 def init_session_state():
     """Inicializar el estado de la sesión"""
@@ -82,10 +71,6 @@ def init_session_state():
         st.session_state.auth_manager = AuthManager(st.session_state.user_manager)
     if 'section' not in st.session_state:
         st.session_state.section = "🏠 Dashboard"
-
-    if 'session_manager' not in st.session_state:
-        from session_manager import session_manager
-        st.session_state.session_manager = session_manager
 
     if 'cliente_para_gestion' not in st.session_state:
         st.session_state.cliente_para_gestion = None
@@ -125,19 +110,21 @@ def login_section():
         
         # Contenedor del formulario compacto
         with st.container():
-            with st.form("login_form", clear_on_submit=False):
+            # ✅ CAMBIA ESTA LÍNEA - Agrega un key único con timestamp
+            with st.form(f"login_form_{int(time.time())}", clear_on_submit=False):
                 st.markdown("### Iniciar Sesión")
                 
                 email = st.text_input("📧 Email", placeholder="usuario@alpapel.com", key="login_email")
                 password = st.text_input("🔒 Contraseña", type="password", placeholder="Ingresa tu contraseña", key="login_password")
                 
                 # Botón de login centrado
-                login_button = st.form_submit_button("🚀 Ingresar al Sistema", width='stretch', type="primary")
+                login_button = st.form_submit_button("🚀 Ingresar al Sistema", use_container_width=True, type="primary")
                 
                 if login_button:
                     if email and password:
-                        if not email.endswith('@alpapel.com'):
-                            st.error("❌ Por favor usa tu email corporativo @alpapel.com")
+                        allowed_domains = ['@alpapel.com', '@gmail.com', '@hotmail.com']
+                        if not any(email.endswith(domain) for domain in allowed_domains):
+                            st.error("❌ Dominio de email no permitido")
                         else:
                             with st.spinner("🔐 Autenticando..."):
                                 time.sleep(1)
@@ -163,10 +150,10 @@ def login_section():
         st.markdown("---")
         col_help1, col_help2 = st.columns(2)
         with col_help1:
-            if st.button("¿Olvidaste contraseña?", width='stretch', key="btn_forgot"):
+            if st.button("¿Olvidaste contraseña?", use_container_width=True, key="btn_forgot_pass"):
                 st.info("📞 Contacta al administrador: cartera@alpapel.com")
         with col_help2:
-            if st.button("Ayuda", width='stretch', key="btn_help"):
+            if st.button("Ayuda", use_container_width=True, key="btn_help_support"):
                 st.info("""
                 **Soporte Técnico - ALPAPEL SAS**
                 
@@ -272,16 +259,10 @@ def main_app():
             </div>
             """,
             unsafe_allow_html=True
-        )  
+        )
     
     with col_logout:
-        if st.button("🔒 Cerrar Sesión", use_container_width=True, type="primary"):
-            # NUEVO: Limpiar sesión del manager
-            if st.session_state.user:
-                email = st.session_state.user['email']
-                if email in st.session_state.session_manager.active_sessions:
-                    del st.session_state.session_manager.active_sessions[email]
-            
+        if st.button("🔒 Cerrar Sesión", use_container_width=True, type="primary", key="logout_btn"):
             st.session_state.user = None
             st.session_state.auth_manager.logout()
             st.rerun()
@@ -309,7 +290,8 @@ def main_app():
         selected_section = st.radio(
             "Selecciona una sección:",
             options=list(sections.keys()),
-            index=list(sections.keys()).index(st.session_state.section) if st.session_state.section in sections else 0
+            index=list(sections.keys()).index(st.session_state.section) if st.session_state.section in sections else 0,
+            key="nav_radio"
         )
         
         st.session_state.section = selected_section
@@ -329,7 +311,7 @@ def main_app():
         st.markdown("---")
         
         # Botón de actualizar datos
-        if st.button("🔄 Actualizar Datos", use_container_width=True):
+        if st.button("🔄 Actualizar Datos", use_container_width=True, key="btn_actualizar_datos"):
             with st.spinner("Actualizando datos..."):
                 load_initial_data()
                 st.success("✅ Datos actualizados")
@@ -602,7 +584,7 @@ def cartera_section():
                 key="buscar_cartera_input"
             )
         with col_search3:
-            if st.button("🧹 Limpiar", width='stretch', key="btn_limpiar_cartera"):
+            if st.button("🧹 Limpiar", use_container_width=True, key="btn_limpiar_filtros"):
                 st.rerun()
         
         # Fila 2: Filtros dropdown
@@ -645,11 +627,11 @@ def cartera_section():
         
         with col_btn1:
             # Botón para cargar Excel
-            if st.button("📤 Cargar Excel", width='stretch', type="primary"):
+            if st.button("📤 Cargar Excel", use_container_width=True, type="primary", key="btn_cargar_excel"):
                 st.session_state.mostrar_uploader = True
         
         with col_btn2:
-            if st.button("🔄 Actualizar Vista", width='stretch', key="btn_actualizar_cartera"):
+            if st.button("🔄 Actualizar Vista", use_container_width=True, key="btn_actualizar_vista"):
                 st.rerun()
         
         with col_btn3:
@@ -728,7 +710,7 @@ def mostrar_tabla_cartera_con_seleccion(cartera_df):
         )
     
     with col_sel2:
-        if st.button("📋 Ver Detalles", use_container_width=True) and cliente_seleccionado != "--- Selecciona un cliente ---":
+        if st.button("📋 Ver Detalles", use_container_width=True, key="btn_ver_detalles") and cliente_seleccionado != "--- Selecciona un cliente ---":
             # Extraer NIT del cliente seleccionado
             nit_cliente = cliente_seleccionado.split(" - ")[0]
             seleccionar_cliente_para_detalles(nit_cliente)
@@ -760,7 +742,7 @@ def mostrar_panel_cliente_detallado():
     st.header(f"👤 {cliente['razon_social']}")
     
     # Botón para volver
-    if st.button("← Volver a lista completa", type="secondary"):
+    if st.button("← Volver a lista completa", type="secondary", key="btn_volver_lista"):
         st.session_state.cliente_seleccionado = None
         st.rerun()
     
@@ -772,17 +754,17 @@ def mostrar_panel_cliente_detallado():
     col_contact1, col_contact2 = st.columns(2)
     
     with col_contact1:
-        st.text_input("NIT", cliente.get('nit_cliente', 'N/A'), disabled=True)
-        st.text_input("Teléfono", cliente.get('telefono', 'No disponible') or 'No disponible', disabled=True)
-        st.text_input("Celular", cliente.get('celular', 'No disponible') or 'No disponible', disabled=True)
+        st.text_input("NIT", cliente.get('nit_cliente', 'N/A'), disabled=True, key="nit_display")
+        st.text_input("Teléfono", cliente.get('telefono', 'No disponible') or 'No disponible', disabled=True, key="telefono_display")
+        st.text_input("Celular", cliente.get('celular', 'No disponible') or 'No disponible', disabled=True, key="celular_display")
     
     with col_contact2:
-        st.text_input("Email", cliente.get('email', 'No disponible') or 'No disponible', disabled=True)
-        st.text_input("Ciudad", cliente.get('ciudad', 'No disponible') or 'No disponible', disabled=True)
-        st.text_input("Vendedor", cliente.get('vendedor_asignado', 'No asignado') or 'No asignado', disabled=True)
+        st.text_input("Email", cliente.get('email', 'No disponible') or 'No disponible', disabled=True, key="email_display")
+        st.text_input("Ciudad", cliente.get('ciudad', 'No disponible') or 'No disponible', disabled=True, key="ciudad_display")
+        st.text_input("Vendedor", cliente.get('vendedor_asignado', 'No asignado') or 'No asignado', disabled=True, key="vendedor_display")
     
     # Dirección completa
-    st.text_input("Dirección", cliente.get('direccion', 'No disponible') or 'No disponible', disabled=True)
+    st.text_input("Dirección", cliente.get('direccion', 'No disponible') or 'No disponible', disabled=True, key="direccion_display")
     
     # ====================
     # SECCIÓN 2: RESUMEN CARTERA
@@ -792,16 +774,16 @@ def mostrar_panel_cliente_detallado():
     col_res1, col_res2, col_res3, col_res4 = st.columns(4)
     
     with col_res1:
-        st.metric("Total Cartera", f"${resumen['total_cartera']:,.0f}")
+        st.metric("Total Cartera", f"${resumen['total_cartera']:,.0f}", key="metric_total_cartera")
     
     with col_res2:
-        st.metric("Cartera en Mora", f"${resumen['cartera_mora']:,.0f}")
+        st.metric("Cartera en Mora", f"${resumen['cartera_mora']:,.0f}", key="metric_cartera_mora")
     
     with col_res3:
-        st.metric("Facturas Totales", resumen['total_facturas'])
+        st.metric("Facturas Totales", resumen['total_facturas'], key="metric_facturas_total")
     
     with col_res4:
-        st.metric("Facturas Vencidas", resumen['facturas_vencidas'])
+        st.metric("Facturas Vencidas", resumen['facturas_vencidas'], key="metric_facturas_vencidas")
     
     # ====================
     # SECCIÓN 3: DETALLE DE FACTURAS
@@ -862,7 +844,7 @@ def mostrar_panel_cliente_detallado():
     col_acc1, col_acc2, col_acc3 = st.columns(3)
     
     with col_acc1:
-        if st.button("📞 Llamar al Cliente", use_container_width=True, key="btn_llamar"):
+        if st.button("📞 Llamar al Cliente", use_container_width=True, key="btn_llamar_cliente"):
             telefono = cliente.get('telefono') or cliente.get('celular')
             if telefono and telefono != 'No disponible':
                 st.success(f"📞 Marcando: {telefono}")
@@ -871,7 +853,7 @@ def mostrar_panel_cliente_detallado():
                 st.warning("No hay número de teléfono disponible")
     
     with col_acc2:
-        if st.button("📧 Enviar Email", use_container_width=True, key="btn_email"):
+        if st.button("📧 Enviar Email", use_container_width=True, key="btn_email_cliente"):
             email = cliente.get('email')
             if email and email != 'No disponible':
                 st.success(f"📧 Email: {email}")
@@ -1031,18 +1013,19 @@ def mostrar_tabla_cartera_completa(cartera_df):
     col_exp1, col_exp2 = st.columns(2)
     
     with col_exp1:
-        if st.button("📊 Exportar a CSV", width='stretch'):
+        if st.button("📊 Exportar a CSV", use_container_width=True, key="btn_export_csv"):
             csv = display_df.to_csv(index=False)
             st.download_button(
                 label="⬇️ Descargar CSV",
                 data=csv,
                 file_name=f"cartera_filtrada_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
                 mime="text/csv",
-                width='stretch'
+                use_container_width=True,
+                key="btn_download_csv"
             )
     
     with col_exp2:
-        if st.button("📋 Copiar al Portapapeles", width='stretch'):
+        if st.button("📋 Copiar al Portapapeles", use_container_width=True, key="btn_copy_clipboard"):
             # Crear una versión para copiar
             copy_df = display_df.copy()
             # Remover formato de dinero para mejor copiado
@@ -1073,7 +1056,7 @@ def cargar_excel_cartera_streamlit():
         st.json(file_details)
         
         # Botón para confirmar la carga
-        if st.button("🚀 Iniciar Carga del Archivo", width='stretch', type="primary"):
+        if st.button("🚀 Iniciar Carga del Archivo", use_container_width=True, type="primary", key="btn_iniciar_carga"):
             # Guardar el archivo en session_state
             st.session_state.archivo_data = uploaded_file.getvalue()
             st.session_state.archivo_nombre = uploaded_file.name
