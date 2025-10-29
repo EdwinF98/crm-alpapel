@@ -1,4 +1,4 @@
-# app.py - VERSIÓN SIN LOGOS
+# app.py - VERSIÓN CORREGIDA CON FORM KEYS ÚNICOS
 import streamlit as st
 import pandas as pd
 import time
@@ -110,7 +110,7 @@ def login_section():
         
         # Contenedor del formulario compacto
         with st.container():
-            # ✅ CAMBIA ESTA LÍNEA - Agrega un key único con timestamp
+            # ✅ FIX: Key único para el formulario
             with st.form(f"login_form_{int(time.time())}", clear_on_submit=False):
                 st.markdown("### Iniciar Sesión")
                 
