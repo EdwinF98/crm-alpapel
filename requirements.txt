@@ -1,17 +1,5 @@
-# Framework principal
 streamlit==1.28.0
-
-# Procesamiento de datos
-pandas==2.0.3
-numpy==1.24.3
-openpyxl==3.1.2
-
-# Gráficas y visualización
-plotly==5.15.0
-
-# Utilidades
-python-dateutil==2.8.2
-Pillow==10.0.1
-
-# Email (opcional - si usas el módulo de email)
-python-dotenv==1.0.0
+pandas==1.5.3
+openpyxl==3.0.10
+plotly==5.13.0
+Pillow==9.5.0
