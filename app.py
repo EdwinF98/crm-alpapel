@@ -60,23 +60,47 @@ def main():
         st.stop()
 
 def init_session_state():
-    """Inicializar el estado de la sesión"""
-    if 'user' not in st.session_state:
-        st.session_state.user = None
+    """Inicializar el estado de la sesión con persistencia"""
+    # Inicializar managers básicos primero
     if 'db' not in st.session_state:
         st.session_state.db = DatabaseManager()
     if 'user_manager' not in st.session_state:
         st.session_state.user_manager = UserManager(st.session_state.db.db_path)
     if 'auth_manager' not in st.session_state:
         st.session_state.auth_manager = AuthManager(st.session_state.user_manager)
+    
+    # ✅ PRIMERO: Intentar cargar sesión persistente
+    if 'user' not in st.session_state or st.session_state.user is None:
+        try:
+            from session_utils import session_manager
+            saved_user = session_manager.load_session()
+            if saved_user:
+                print(f"🔍 DEBUG: Sesión persistente encontrada para {saved_user['email']}")
+                st.session_state.user = saved_user
+                st.session_state.db.set_current_user(saved_user)
+                st.session_state.auth_manager.current_user = saved_user
+                st.session_state.auth_manager.is_authenticated = True
+                st.session_state.auth_manager.session_start = time.time()
+            else:
+                st.session_state.user = None
+                print("🔍 DEBUG: No hay sesión persistente")
+        except Exception as e:
+            print(f"⚠️ DEBUG: Error cargando sesión persistente: {e}")
+            st.session_state.user = None
+    else:
+        print(f"🔍 DEBUG: Usuario ya en sesión: {st.session_state.user['email']}")
+
+    # Inicializar sección por defecto
     if 'section' not in st.session_state:
         st.session_state.section = "🏠 Dashboard"
 
+    # Estado para gestión de clientes
     if 'cliente_para_gestion' not in st.session_state:
         st.session_state.cliente_para_gestion = None
     if 'ir_a_gestion' not in st.session_state:
         st.session_state.ir_a_gestion = False
     
+    # Estado para carga de archivos
     if 'carga_en_progreso' not in st.session_state:
         st.session_state.carga_en_progreso = False
     if 'archivo_cargado' not in st.session_state:
@@ -88,10 +112,25 @@ def init_session_state():
     if 'archivo_nombre' not in st.session_state:
         st.session_state.archivo_nombre = ""
     
+    # Estado para actualización de datos
     if 'datos_actualizados' not in st.session_state:
         st.session_state.datos_actualizados = False
     if 'ultima_actualizacion' not in st.session_state:
         st.session_state.ultima_actualizacion = None
+
+    # Estado para UI
+    if 'mostrar_uploader' not in st.session_state:
+        st.session_state.mostrar_uploader = False
+    if 'cliente_seleccionado' not in st.session_state:
+        st.session_state.cliente_seleccionado = None
+    if 'datos_cliente_completos' not in st.session_state:
+        st.session_state.datos_cliente_completos = None
+
+    # Debug final
+    if st.session_state.user:
+        print(f"🔍 DEBUG INIT: Sesión iniciada para {st.session_state.user['email']}")
+    else:
+        print("🔍 DEBUG INIT: Sesión NO iniciada - Mostrar login")
 
 def login_section():
     """Sección de login para Streamlit - VERSIÓN SIN LOGOS"""
@@ -137,9 +176,12 @@ def login_section():
                                 st.session_state.auth_manager.current_user = user_data
                                 st.session_state.auth_manager.is_authenticated = True
                                 st.session_state.auth_manager.session_start = time.time()
-                                st.success(f"✅ ¡Bienvenid@ {user_data['nombre_completo']}!")
                                 
-                                # ✅ FIX CRÍTICO: Rerun inmediato y forzado
+                                # ✅ GUARDAR SESIÓN PERSISTENTE
+                                from session_utils import session_manager
+                                session_manager.save_session(user_data)
+                                
+                                st.success(f"✅ ¡Bienvenid@ {user_data['nombre_completo']}!")
                                 time.sleep(0.5)
                                 st.rerun()
                             else:
@@ -263,9 +305,16 @@ def main_app():
         )
     
     with col_logout:
+        # ✅ AQUÍ VA EL CÓDIGO MODIFICADO DEL LOGOUT
         if st.button("🔒 Cerrar Sesión", use_container_width=True, type="primary", key="logout_btn"):
+            # ✅ NUEVO: Limpiar sesión persistente
+            from session_utils import session_manager
+            session_manager.clear_session()
+            
             st.session_state.user = None
             st.session_state.auth_manager.logout()
+            st.success("✅ Sesión cerrada correctamente")
+            time.sleep(0.5)
             st.rerun()
     
     st.markdown("---")
