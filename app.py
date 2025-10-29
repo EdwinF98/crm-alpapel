@@ -60,35 +60,73 @@ def main():
         st.stop()
 
 def init_session_state():
-    """Inicializar el estado de la sesión con persistencia"""
-    # Inicializar managers básicos primero
+    """Inicializar el estado de la sesión con persistencia - VERSIÓN DEBUG"""
+    print("=" * 50)
+    print("🔍 DEBUG: init_session_state() INICIADO")
+    
+    # 1. Inicializar managers básicos
     if 'db' not in st.session_state:
         st.session_state.db = DatabaseManager()
+        print("✅ DatabaseManager inicializado")
+    
     if 'user_manager' not in st.session_state:
         st.session_state.user_manager = UserManager(st.session_state.db.db_path)
+        print("✅ UserManager inicializado")
+    
     if 'auth_manager' not in st.session_state:
         st.session_state.auth_manager = AuthManager(st.session_state.user_manager)
+        print("✅ AuthManager inicializado")
     
-    # ✅ PRIMERO: Intentar cargar sesión persistente
-    if 'user' not in st.session_state or st.session_state.user is None:
-        try:
-            from session_utils import session_manager
-            saved_user = session_manager.load_session()
-            if saved_user:
-                print(f"🔍 DEBUG: Sesión persistente encontrada para {saved_user['email']}")
-                st.session_state.user = saved_user
-                st.session_state.db.set_current_user(saved_user)
-                st.session_state.auth_manager.current_user = saved_user
-                st.session_state.auth_manager.is_authenticated = True
-                st.session_state.auth_manager.session_start = time.time()
-            else:
-                st.session_state.user = None
-                print("🔍 DEBUG: No hay sesión persistente")
-        except Exception as e:
-            print(f"⚠️ DEBUG: Error cargando sesión persistente: {e}")
+    # 2. INTENTAR CARGAR SESIÓN PERSISTENTE
+    print("🔍 Buscando sesión persistente...")
+    try:
+        from session_utils import session_manager
+        saved_user = session_manager.load_session()
+        
+        if saved_user:
+            print(f"✅ SESIÓN PERSISTENTE ENCONTRADA: {saved_user.get('email')}")
+            st.session_state.user = saved_user
+            st.session_state.db.set_current_user(saved_user)
+            st.session_state.auth_manager.current_user = saved_user
+            st.session_state.auth_manager.is_authenticated = True
+            st.session_state.auth_manager.session_start = time.time()
+        else:
             st.session_state.user = None
+            print("🔍 No hay usuario en sesión persistente")
+            
+    except Exception as e:
+        print(f"❌ ERROR en carga de sesión: {e}")
+        st.session_state.user = None
+    
+    # 3. Inicializar el resto del estado
+    defaults = {
+        'section': "🏠 Dashboard",
+        'cliente_para_gestion': None,
+        'ir_a_gestion': False,
+        'carga_en_progreso': False,
+        'archivo_cargado': False,
+        'mensaje_carga': "",
+        'archivo_data': None,
+        'archivo_nombre': "",
+        'datos_actualizados': False,
+        'ultima_actualizacion': None,
+        'mostrar_uploader': False,
+        'cliente_seleccionado': None,
+        'datos_cliente_completos': None
+    }
+    
+    for key, default_value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = default_value
+            print(f"✅ {key} inicializado: {default_value}")
+    
+    # 4. Estado final
+    if st.session_state.user:
+        print(f"🎯 ESTADO FINAL: Usuario AUTENTICADO - {st.session_state.user.get('email')}")
     else:
-        print(f"🔍 DEBUG: Usuario ya en sesión: {st.session_state.user['email']}")
+        print("🎯 ESTADO FINAL: Usuario NO autenticado - Mostrar login")
+    
+    print("=" * 50)
 
     # Inicializar sección por defecto
     if 'section' not in st.session_state:
