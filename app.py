@@ -245,10 +245,11 @@ def login_section():
 def main_app():
     """Aplicación principal una vez autenticado - SIN LOGOS"""
     
-    # ✅ Verificar si debemos navegar a gestión automáticamente
+    # ✅ VERIFICAR SI DEBEMOS NAVEGAR A GESTIÓN AUTOMÁTICAMENTE
     if st.session_state.get('ir_a_gestion', False) and st.session_state.get('cliente_para_gestion'):
         st.session_state.section = "📞 Gestión"
         st.session_state.ir_a_gestion = False
+        st.rerun()
     
     # Header superior SIN LOGOS
     st.markdown(
@@ -950,9 +951,17 @@ def mostrar_panel_cliente_detallado():
     with col_acc3:
         if st.button("📋 Ir a Gestión", use_container_width=True, key="btn_ir_gestion"):
             if st.session_state.cliente_seleccionado:
+                # ✅ GUARDAR CLIENTE PARA GESTIÓN
                 st.session_state.cliente_para_gestion = st.session_state.cliente_seleccionado
                 st.session_state.ir_a_gestion = True
+                
+                # ✅ FORZAR CAMBIO DE SECCIÓN INMEDIATAMENTE
+                st.session_state.section = "📞 Gestión"
+                
                 st.success("🔄 Navegando a Gestión...")
+                
+                # ✅ DELAY CORTO Y RERUN FORZADO
+                time.sleep(0.3)
                 st.rerun()
             else:
                 st.error("❌ No hay cliente seleccionado")
