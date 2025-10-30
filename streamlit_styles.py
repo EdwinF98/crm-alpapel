@@ -569,44 +569,44 @@ button[title="Hide sidebar"] {
     }
 }
 
-/* ✅ SOLUCIÓN DEFINITIVA SIDEBAR */
-/* Forzar sidebar siempre expandida */
-section[data-testid="stSidebar"] {
+/* ✅ ELIMINAR COMPLETAMENTE LA LÓGICA DE OCULTAR SIDEBAR */
+[data-testid="stSidebar"] {
+    /* Forzar visibilidad total */
     transform: translateX(0px) !important;
     visibility: visible !important;
     opacity: 1 !important;
     display: block !important;
+    width: 21rem !important;
+    min-width: 21rem !important;
+    max-width: 21rem !important;
 }
 
-/* Ocultar completamente el botón de ocultar sidebar */
+/* ✅ ELIMINAR BOTÓN DE OCULTAR */
+button[data-testid="baseButton-header"] {
+    display: none !important;
+}
+
 button[kind="header"] {
     display: none !important;
 }
 
-/* En móvil, forzar el botón de toggle */
-@media (max-width: 768px) {
-    /* Botón de hamburguesa SIEMPRE visible */
-    .css-1d391kg {
-        display: block !important;
-        visibility: visible !important;
-        opacity: 1 !important;
-        z-index: 1000000 !important;
-    }
-    
-    /* Sidebar en móvil */
-    section[data-testid="stSidebar"] {
-        width: 280px !important;
-    }
-    
-    /* Override cualquier estilo que oculte la sidebar */
-    [data-testid="stSidebar"]:not(:focus):not(:active) {
-        transform: translateX(0px) !important;
-    }
+/* ✅ ELIMINAR COLLAPSE STATE */
+[data-testid="stSidebar"][aria-expanded="false"] {
+    transform: translateX(0px) !important;
+    visibility: visible !important;
 }
 
-/* Remover cualquier transición que pueda ocultar la sidebar */
-[data-testid="stSidebar"] {
-    transition: none !important;
+/* ✅ EN MÓVIL: BOTÓN HAMBURGUESA SIEMPRE VISIBLE */
+.css-1d391kg {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    z-index: 999999 !important;
+}
+
+/* ✅ ELIMINAR CUALQUIER HOVER QUE OCULTE */
+[data-testid="stSidebar"]:hover {
+    transform: translateX(0px) !important;
 }
 </style>
 
