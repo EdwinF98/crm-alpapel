@@ -576,9 +576,9 @@ button[title="Hide sidebar"] {
     visibility: visible !important;
     opacity: 1 !important;
     display: block !important;
-    width: 21rem !important;
-    min-width: 21rem !important;
-    max-width: 21rem !important;
+    width: 18rem !important;
+    min-width: 18rem !important;
+    max-width: 18rem !important;
 }
 
 /* ✅ ELIMINAR BOTÓN DE OCULTAR */
