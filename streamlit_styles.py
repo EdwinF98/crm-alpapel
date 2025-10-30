@@ -568,6 +568,46 @@ button[title="Hide sidebar"] {
         z-index: 1000000 !important;
     }
 }
+
+/* ✅ SOLUCIÓN DEFINITIVA SIDEBAR */
+/* Forzar sidebar siempre expandida */
+section[data-testid="stSidebar"] {
+    transform: translateX(0px) !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    display: block !important;
+}
+
+/* Ocultar completamente el botón de ocultar sidebar */
+button[kind="header"] {
+    display: none !important;
+}
+
+/* En móvil, forzar el botón de toggle */
+@media (max-width: 768px) {
+    /* Botón de hamburguesa SIEMPRE visible */
+    .css-1d391kg {
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        z-index: 1000000 !important;
+    }
+    
+    /* Sidebar en móvil */
+    section[data-testid="stSidebar"] {
+        width: 280px !important;
+    }
+    
+    /* Override cualquier estilo que oculte la sidebar */
+    [data-testid="stSidebar"]:not(:focus):not(:active) {
+        transform: translateX(0px) !important;
+    }
+}
+
+/* Remover cualquier transición que pueda ocultar la sidebar */
+[data-testid="stSidebar"] {
+    transition: none !important;
+}
 </style>
 
 <script>
