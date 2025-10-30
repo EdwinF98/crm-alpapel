@@ -245,10 +245,11 @@ def login_section():
 def main_app():
     """Aplicación principal una vez autenticado - SIN LOGOS"""
     
-    # ✅ Verificar si debemos navegar a gestión automáticamente
+    # ✅ VERIFICAR SI DEBEMOS NAVEGAR A GESTIÓN AUTOMÁTICAMENTE
     if st.session_state.get('ir_a_gestion', False) and st.session_state.get('cliente_para_gestion'):
         st.session_state.section = "📞 Gestión"
         st.session_state.ir_a_gestion = False
+        st.rerun()
     
     # Header superior SIN LOGOS
     st.markdown(
@@ -307,6 +308,45 @@ def main_app():
             opacity: 0.9;
             line-height: 1.2;
         }
+        
+        /* ✅ NUEVO: Estilos para móvil */
+        .mobile-menu-help {
+            display: none;
+            background: #ffeb3b;
+            color: #333;
+            padding: 8px 12px;
+            border-radius: 5px;
+            margin: 5px 0;
+            text-align: center;
+            font-size: 12px;
+            border-left: 4px solid #00B3B0;
+        }
+        
+        @media (max-width: 768px) {
+            .mobile-menu-help {
+                display: block;
+            }
+            
+            .compact-header {
+                padding: 0.3rem 0.8rem;
+            }
+            
+            .header-title {
+                font-size: 1.1rem;
+            }
+            
+            .header-subtitle {
+                font-size: 0.75rem;
+            }
+            
+            .user-name-compact {
+                font-size: 0.75rem;
+            }
+            
+            .user-role-compact {
+                font-size: 0.65rem;
+            }
+        }
         </style>
         """,
         unsafe_allow_html=True
@@ -322,6 +362,16 @@ def main_app():
                     <div class="header-subtitle">ALPAPEL SAS</div>
                 </div>
             </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    
+    # ✅ NUEVO: Ayuda para móvil
+    st.markdown(
+        """
+        <div class="mobile-menu-help">
+        📱 <strong>Para ver el menú:</strong> Toca el ícono ☰ en la esquina superior derecha
         </div>
         """,
         unsafe_allow_html=True
@@ -343,9 +393,8 @@ def main_app():
         )
     
     with col_logout:
-        # ✅ AQUÍ VA EL CÓDIGO MODIFICADO DEL LOGOUT
         if st.button("🔒 Cerrar Sesión", use_container_width=True, type="primary", key="logout_btn"):
-            # ✅ NUEVO: Limpiar sesión persistente
+            # ✅ Limpiar sesión persistente
             from session_utils import session_manager
             session_manager.clear_session()
             
@@ -389,6 +438,14 @@ def main_app():
         st.markdown("**💼 Información de Sesión**")
         tiempo_restante = st.session_state.auth_manager.get_session_time_remaining()
         st.write(f"⏰ Tiempo restante: {tiempo_restante} min")
+        
+        # ✅ NUEVO: Información de sesión persistente
+        try:
+            from session_utils import session_manager
+            tiempo_persistente = session_manager.get_remaining_time()
+            st.write(f"💾 Sesión persistente: {tiempo_persistente} min")
+        except:
+            pass
         
         if st.session_state.user.get('vendedor_asignado'):
             st.write(f"👤 Vendedor: {st.session_state.user['vendedor_asignado']}")
