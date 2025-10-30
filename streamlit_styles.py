@@ -545,5 +545,48 @@ section[data-testid="stSidebar"] {
 .stIcon {
     font-size: 1.2em;
 }
+/* ✅ FIJAR SIDEBAR - NO SE PUEDE OCULTAR */
+section[data-testid="stSidebar"] {
+    visibility: visible !important;
+    transform: translateX(0) !important;
+}
+
+/* OCULTAR BOTÓN DE OCULTAR SIDEBAR */
+button[title="Hide sidebar"] {
+    display: none !important;
+}
+
+/* EN MÓVIL: SIDEBAR SIEMPRE ACCESIBLE */
+@media (max-width: 768px) {
+    section[data-testid="stSidebar"] > div {
+        width: 280px !important;
+    }
+    
+    /* FORZAR BOTÓN TOGGLE VISIBLE */
+    .css-1d391kg {
+        display: block !important;
+        z-index: 1000000 !important;
+    }
+}
 </style>
+
+<script>
+// ✅ FORZAR SIDEBAR SIEMPRE VISIBLE
+function forceSidebarVisible() {
+    // Sidebar siempre visible
+    const sidebar = document.querySelector('section[data-testid="stSidebar"]');
+    if (sidebar) {
+        sidebar.style.visibility = 'visible';
+        sidebar.style.transform = 'translateX(0)';
+    }
+    
+    // Eliminar botón de ocultar
+    const hideBtn = document.querySelector('button[title="Hide sidebar"]');
+    if (hideBtn) hideBtn.style.display = 'none';
+}
+
+// Ejecutar cada 500ms para combatir Streamlit
+setInterval(forceSidebarVisible, 500);
+forceSidebarVisible();
+</script>
 """
