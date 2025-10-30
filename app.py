@@ -245,11 +245,10 @@ def login_section():
 def main_app():
     """Aplicación principal una vez autenticado - SIN LOGOS"""
     
-    # ✅ VERIFICAR SI DEBEMOS NAVEGAR A GESTIÓN AUTOMÁTICAMENTE
+    # ✅ Verificar si debemos navegar a gestión automáticamente
     if st.session_state.get('ir_a_gestion', False) and st.session_state.get('cliente_para_gestion'):
         st.session_state.section = "📞 Gestión"
         st.session_state.ir_a_gestion = False
-        st.rerun()
     
     # Header superior SIN LOGOS
     st.markdown(

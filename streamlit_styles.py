@@ -64,6 +64,50 @@ footer {visibility: hidden;}
     line-height: 1.2 !important;
 }
 
+/* ✅ SOLUCIÓN SIMPLE: Sidebar siempre accesible */
+@media (max-width: 768px) {
+    /* Forzar que Streamlit muestre el botón de sidebar */
+    .css-1d391kg { 
+        display: block !important; 
+    }
+    
+    /* Sidebar más ancha en móvil */
+    section[data-testid="stSidebar"] > div {
+        width: 280px !important;
+    }
+    
+    /* Header más compacto en móvil */
+    .compact-header {
+        padding: 0.3rem 0.5rem !important;
+    }
+    
+    .header-title {
+        font-size: 1.1rem !important;
+    }
+    
+    .header-subtitle {
+        font-size: 0.8rem !important;
+    }
+}
+
+/* Instrucciones para usuario móvil */
+.mobile-help {
+    display: none;
+    background: #ffeb3b;
+    color: #333;
+    padding: 10px;
+    border-radius: 5px;
+    margin: 10px 0;
+    text-align: center;
+    font-size: 14px;
+}
+
+@media (max-width: 768px) {
+    .mobile-help {
+        display: block;
+    }
+}
+
 .user-panel-compact {
     background: rgba(255,255,255,0.1);
     padding: 0.4rem 0.8rem !important;
