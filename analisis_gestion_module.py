@@ -19,14 +19,14 @@ def analisis_gestion_section():
         # 1. FILTROS PRINCIPALES (con manejo correcto del estado)
         periodo_seleccionado = mostrar_filtros_gestion()
         
-        # 2. MÉTRICAS DE PROGRESO (pasar el período)
-        mostrar_metricas_progreso(periodo_seleccionado)
-            
-        # 3. GRÁFICAS PRINCIPALES (pasar el período)
-        mostrar_graficas_gestion(periodo_seleccionado)
-                
-        # 4. TABLA DETALLADA (pasar el período)  
-        mostrar_tabla_detallada(periodo_seleccionado)
+        # 2. MÉTRICAS DE PROGRESO
+        mostrar_metricas_progreso()
+        
+        # 3. GRÁFICAS PRINCIPALES
+        mostrar_graficas_gestion()
+        
+        # 4. TABLA DETALLADA
+        mostrar_tabla_detallada()
         
         # 5. BOTONES DE ACCIÓN
         mostrar_botones_accion_gestion()
@@ -45,7 +45,7 @@ def mostrar_filtros_gestion():
     
     with col1:
         # Filtro de período - SIN modificar session_state directamente
-        periodo_options = ["Mes Actual", "Mes Anterior", "Personalizado"]
+        periodo_options = ["Mes Actual", "Últimos 7 días", "Últimos 30 días", "Trimestre Actual", "Personalizado"]
         
         # Usar key único y manejar el retorno
         periodo_seleccionado = st.selectbox(
@@ -77,23 +77,7 @@ def mostrar_filtros_gestion():
             options=resultado_options,
             key="filtro_resultado_gestion"
         )
-
-    # Selector de rango de fechas para Personalizado
-    if periodo_seleccionado == "Personalizado":
-        st.markdown("**📅 Seleccionar rango de fechas:**")
-        col_fecha1, col_fecha2 = st.columns(2)
-        with col_fecha1:
-            fecha_inicio = st.date_input("Fecha inicio", value=datetime.now() - timedelta(days=30))
-        with col_fecha2:
-            fecha_fin = st.date_input("Fecha fin", value=datetime.now())
-        
-        # Guardar en session_state
-        st.session_state.fecha_inicio_personalizado = fecha_inicio
-        st.session_state.fecha_fin_personalizado = fecha_fin
-
-    # Botones de acción - CORREGIDOS (esto ya existe en tu código)
-    col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 2])
-
+    
     # Botones de acción - CORREGIDOS
     col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 2])
     
@@ -114,7 +98,7 @@ def mostrar_filtros_gestion():
     
     return periodo_seleccionado
 
-def mostrar_metricas_progreso(periodo_seleccionado=None):
+def mostrar_metricas_progreso():
     """Muestra las métricas de progreso con barras dinámicas - VERSIÓN CORREGIDA"""
     
     st.subheader("📊 Progreso de Gestión")
@@ -272,7 +256,7 @@ def crear_barra_progreso_html(porcentaje, tipo_color="primary"):
     """
     return barra_html
 
-def mostrar_graficas_gestion(periodo_seleccionado=None):
+def mostrar_graficas_gestion():
     """Muestra las 3 gráficas principales de análisis de gestión"""
     
     st.subheader("📈 Gráficas de Análisis")
@@ -281,7 +265,7 @@ def mostrar_graficas_gestion(periodo_seleccionado=None):
     try:
         # Gráfica 1: Distribución de resultados
         with st.spinner("Cargando distribución de resultados..."):
-            fig_distribucion = crear_grafica_distribucion_resultados(periodo_seleccionado)
+            fig_distribucion = crear_grafica_distribucion_resultados()
             if fig_distribucion:
                 st.plotly_chart(fig_distribucion, use_container_width=True)
             else:
@@ -293,7 +277,7 @@ def mostrar_graficas_gestion(periodo_seleccionado=None):
         with col1:
             # Gráfica 2: Evolución diaria
             with st.spinner("Cargando evolución diaria..."):
-                fig_evolucion = crear_grafica_evolucion_diaria(periodo_seleccionado)
+                fig_evolucion = crear_grafica_evolucion_diaria()
                 if fig_evolucion:
                     st.plotly_chart(fig_evolucion, use_container_width=True)
                 else:
@@ -302,7 +286,7 @@ def mostrar_graficas_gestion(periodo_seleccionado=None):
         with col2:
             # Gráfica 3: Evolución histórica
             with st.spinner("Cargando evolución histórica..."):
-                fig_historica = crear_grafica_evolucion_historica(periodo_seleccionado)
+                fig_historica = crear_grafica_evolucion_historica()
                 if fig_historica:
                     st.plotly_chart(fig_historica, use_container_width=True)
                 else:
@@ -311,7 +295,7 @@ def mostrar_graficas_gestion(periodo_seleccionado=None):
     except Exception as e:
         st.error(f"❌ Error cargando gráficas: {str(e)}")
 
-def crear_grafica_distribucion_resultados(periodo_seleccionado=None):
+def crear_grafica_distribucion_resultados():
     """Crea gráfica de distribución de resultados por categoría"""
     
     try:
@@ -370,7 +354,7 @@ def crear_grafica_distribucion_resultados(periodo_seleccionado=None):
         print(f"Error creando gráfica de distribución: {e}")
         return None
 
-def crear_grafica_evolucion_diaria(periodo_seleccionado=None):
+def crear_grafica_evolucion_diaria():
     """Crea gráfica de evolución diaria de gestiones"""
     
     try:
@@ -455,7 +439,7 @@ def crear_grafica_evolucion_diaria(periodo_seleccionado=None):
         print(f"Error creando gráfica de evolución diaria: {e}")
         return None
 
-def crear_grafica_evolucion_historica(periodo_seleccionado=None):
+def crear_grafica_evolucion_historica():
     """Crea gráfica de evolución histórica mensual"""
     
     try:
@@ -522,14 +506,14 @@ def crear_grafica_evolucion_historica(periodo_seleccionado=None):
         print(f"Error creando gráfica histórica: {e}")
         return None
 
-def mostrar_tabla_detallada(periodo_seleccionado=None):
+def mostrar_tabla_detallada():
     """Muestra tabla detallada de gestiones recientes"""
     
     st.subheader("📋 Gestiones Recientes")
     
     try:
         # Obtener gestiones del mes actual
-        gestiones = st.session_state.db.obtener_gestiones_por_periodo(periodo_seleccionado)
+        gestiones = st.session_state.db.obtener_gestiones_mes_actual()
         
         # Filtrar por usuario si es comercial/consulta
         if st.session_state.auth_manager.current_user['rol'] in ['comercial', 'consulta']:
