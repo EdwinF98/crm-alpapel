@@ -991,41 +991,70 @@ def mostrar_panel_cliente_detallado():
     
     with col_acc1:
         if st.button("💬 WhatsApp Cliente", use_container_width=True, key="btn_whatsapp_cliente"):
-            # Obtener número prioritario (celular > telefono)
+            # ============================================================
+            # ✅ MEJORA: VALIDACIÓN ROBUSTA DE AMBOS CAMPOS (CELULAR Y TELÉFONO)
+            # ============================================================
             numero_whatsapp = None
             celular = cliente.get('celular')
             telefono = cliente.get('telefono')
             
-            # Priorizar celular sobre teléfono
-            if celular and celular != 'No disponible' and str(celular).strip():
-                numero_whatsapp = str(celular).strip()
-            elif telefono and telefono != 'No disponible' and str(telefono).strip():
-                numero_whatsapp = str(telefono).strip()
-            
-            if numero_whatsapp:
-                # Limpiar número: eliminar espacios, guiones, paréntesis
-                numero_limpio = ''.join(filter(str.isdigit, numero_whatsapp))
+            # Función auxiliar para validar y limpiar número
+            def validar_numero(numero_str):
+                if not numero_str or numero_str == 'No disponible':
+                    return None
+                
+                # Convertir a string y limpiar
+                numero_limpio = ''.join(filter(str.isdigit, str(numero_str)))
                 
                 # Validar que sea un número colombiano (10 dígitos)
                 if len(numero_limpio) == 10 and numero_limpio.startswith(('3', '2', '1')):
-                    # Agregar prefijo internacional para Colombia
-                    numero_final = f"57{numero_limpio}"
-                    enlace_whatsapp = f"https://wa.me/{numero_final}"
-                    
-                    st.success(f"💬 WhatsApp listo para: {numero_whatsapp}")
-                    st.markdown(f"""
-                    **Opciones:**
-                    - 📱 **Abrir WhatsApp:** [Click aquí]({enlace_whatsapp})
-                    - 📋 **Número copiado:** `{numero_whatsapp}`
-                    """)
-                    
-                    # Mostrar enlace directo como botón adicional
-                    st.link_button("📱 Abrir Conversación WhatsApp", enlace_whatsapp)
-                else:
-                    st.warning(f"⚠️ Número no válido para WhatsApp: {numero_whatsapp}")
-                    st.info("El número debe tener 10 dígitos y formato colombiano")
+                    return numero_limpio
+                return None
+            
+            # Validar ambos campos exhaustivamente
+            numero_celular_valido = validar_numero(celular)
+            numero_telefono_valido = validar_numero(telefono)
+            
+            # Priorizar celular válido, luego teléfono válido
+            if numero_celular_valido:
+                numero_whatsapp = numero_celular_valido
+                tipo_numero = "celular"
+            elif numero_telefono_valido:
+                numero_whatsapp = numero_telefono_valido
+                tipo_numero = "teléfono"
             else:
-                st.warning("📵 No hay número de contacto disponible para WhatsApp")
+                numero_whatsapp = None
+            
+            if numero_whatsapp:
+                # Agregar prefijo internacional para Colombia
+                numero_final = f"57{numero_whatsapp}"
+                enlace_whatsapp = f"https://wa.me/{numero_final}"
+                
+                st.success(f"💬 WhatsApp listo para: {numero_whatsapp} ({tipo_numero})")
+                st.markdown(f"""
+                **Opciones:**
+                - 📱 **Abrir WhatsApp:** [Click aquí]({enlace_whatsapp})
+                - 📋 **Número copiado:** `{numero_whatsapp}`
+                - 🔍 **Tipo:** {tipo_numero.capitalize()}
+                """)
+                
+                # Mostrar enlace directo como botón adicional
+                st.link_button("📱 Abrir Conversación WhatsApp", enlace_whatsapp)
+                
+                # Debug info (opcional)
+                st.caption(f"🔍 Validación: Celular='{celular}' → {numero_celular_valido} | Teléfono='{telefono}' → {numero_telefono_valido}")
+            else:
+                st.warning("📵 No hay número de contacto válido para WhatsApp")
+                st.info(f"""
+                **Números encontrados:**
+                - 📞 Celular: `{celular if celular and celular != 'No disponible' else 'No disponible'}`
+                - 📞 Teléfono: `{telefono if telefono and telefono != 'No disponible' else 'No disponible'}`
+                
+                **Requisitos para WhatsApp:**
+                - 10 dígitos colombianos
+                - Comenzar con 3, 2 o 1
+                - Sin espacios ni caracteres especiales
+                """)
     
     with col_acc2:
         if st.button("📧 Email Corporativo", use_container_width=True, key="btn_email_corporativo"):
