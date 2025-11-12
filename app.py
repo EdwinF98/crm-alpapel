@@ -13,6 +13,7 @@ from analisis_cartera_module import analisis_cartera_section
 from admin_module import admin_section
 from PIL import Image
 import base64
+
 warnings.filterwarnings('ignore', category=UserWarning)
 
 # Importar tus módulos existentes
@@ -1287,7 +1288,8 @@ def analisis_cartera_section():
     cartera_analisis()
 
 def analisis_gestion_section():
-    """Sección de Análisis de Gestión"""
+    """Sección de Análisis de Gestión - CON FILTROS DINÁMICOS"""
+    # Esta línea ya importa el módulo actualizado con los filtros dinámicos
     from analisis_gestion_module import analisis_gestion_section as gestion_analisis
     gestion_analisis()
 

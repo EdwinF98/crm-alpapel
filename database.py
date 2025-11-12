@@ -100,6 +100,7 @@ class DatabaseManager:
                 fecha_registro DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        
         # Tabla de historial cartera diario
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS historial_cartera_diario (
@@ -157,6 +158,42 @@ class DatabaseManager:
             except:
                 return 0.0
         return float(valor)
+    
+    # ============================================================
+    # 🆕 NUEVA FUNCIÓN PARA RANGOS DE FECHA - FILTROS DINÁMICOS
+    # ============================================================
+    
+    def obtener_rango_fechas_por_periodo(self, periodo_seleccionado, fecha_inicio_personalizada=None, fecha_fin_personalizada=None):
+        """Calcula el rango de fechas según el período seleccionado"""
+        hoy = datetime.now()
+        
+        if periodo_seleccionado == "Mes Actual":
+            inicio = hoy.replace(day=1)
+            fin = hoy
+        elif periodo_seleccionado == "Mes Anterior":
+            primer_dia_mes_actual = hoy.replace(day=1)
+            fin = primer_dia_mes_actual - timedelta(days=1)
+            inicio = fin.replace(day=1)
+        elif periodo_seleccionado == "Últimos 7 días":
+            inicio = hoy - timedelta(days=7)
+            fin = hoy
+        elif periodo_seleccionado == "Últimos 30 días":
+            inicio = hoy - timedelta(days=30)
+            fin = hoy
+        elif periodo_seleccionado == "Trimestre Actual":
+            trimestre_actual = (hoy.month - 1) // 3
+            inicio = datetime(hoy.year, trimestre_actual * 3 + 1, 1)
+            fin = hoy
+        elif periodo_seleccionado == "Personalizado" and fecha_inicio_personalizada and fecha_fin_personalizada:
+            # Usar fechas personalizadas
+            inicio = datetime.strptime(fecha_inicio_personalizada, '%Y-%m-%d')
+            fin = datetime.strptime(fecha_fin_personalizada, '%Y-%m-%d')
+        else:
+            # Por defecto: mes actual
+            inicio = hoy.replace(day=1)
+            fin = hoy
+        
+        return inicio.strftime('%Y-%m-%d'), fin.strftime('%Y-%m-%d')
     
     def cargar_excel_cartera(self, file_path):
         """Carga datos del Excel de cartera a la base de datos"""
@@ -494,8 +531,6 @@ class DatabaseManager:
         conn.close()
         return df
     
-    # Agrega esto temporalmente en database.py en la clase DatabaseManager
-
     def cargar_excel_cartera_con_debug(self, file_path):
         """Versión con debugging de la carga de Excel"""
         print(f"🔍 DEBUG: Iniciando carga de Excel desde: {file_path}")
@@ -524,8 +559,6 @@ class DatabaseManager:
                 return False, f"Error leyendo archivo Excel: {str(e)}"
             
             # Continuar con el procesamiento normal...
-            # ... tu código existente de cargar_excel_cartera ...
-            
             return True, f"Procesados {len(df)} registros"
             
         except Exception as e:
@@ -579,18 +612,349 @@ class DatabaseManager:
         conn.close()
         return df
 
-    def obtener_gestiones_mes_actual(self):
-        """Obtiene gestiones del mes actual para exportar"""
+    # ============================================================
+    # 🆕 FUNCIONES MODIFICADAS PARA FILTROS DINÁMICOS
+    # ============================================================
+
+    def obtener_gestiones_por_periodo(self, fecha_inicio, fecha_fin):
+        """Obtiene gestiones dentro de un rango de fechas específico"""
         conn = sqlite3.connect(self.db_path)
-        query = '''
-            SELECT * FROM gestiones 
-            WHERE strftime("%Y-%m", fecha_contacto) = strftime("%Y-%m", "now")
-            ORDER BY fecha_contacto DESC
-        '''
-        df = pd.read_sql_query(query, conn)
-        conn.close()
-        return df
-    
+        
+        user = self.current_user
+        if not user:
+            return pd.DataFrame()
+        
+        try:
+            # Condiciones según el usuario
+            user_condition = ""
+            user_params = []
+            
+            if user['rol'] in ['comercial', 'consulta']:
+                user_condition = "AND usuario = ?"
+                user_params = [user['email']]
+            
+            query = f'''
+                SELECT * FROM gestiones 
+                WHERE fecha_contacto BETWEEN ? AND ?
+                {user_condition}
+                ORDER BY fecha_contacto DESC
+            '''
+            
+            params = [fecha_inicio, fecha_fin] + user_params
+            df = pd.read_sql_query(query, conn, params=params)
+            conn.close()
+            return df
+            
+        except Exception as e:
+            conn.close()
+            print(f"Error en obtener_gestiones_por_periodo: {e}")
+            return pd.DataFrame()
+
+    def obtener_progreso_gestion(self, fecha_inicio=None, fecha_fin=None):
+        """Obtiene progreso de gestión para un período específico"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            user = self.current_user
+            if not user:
+                conn.close()
+                return self._progreso_vacio()
+            
+            # Si no se especifican fechas, usar mes actual por defecto
+            if not fecha_inicio or not fecha_fin:
+                fecha_inicio = datetime.now().replace(day=1).strftime('%Y-%m-%d')
+                fecha_fin = datetime.now().strftime('%Y-%m-%d')
+            
+            # Obtener condiciones de filtro según el usuario
+            where_conditions = []
+            params = []
+            
+            if user['rol'] in ['comercial', 'consulta']:
+                vendedor = user.get('vendedor_asignado')
+                if vendedor:
+                    where_conditions.append('nombre_vendedor = ?')
+                    params.append(vendedor)
+                else:
+                    # Si es comercial pero no tiene vendedor, no mostrar datos
+                    conn.close()
+                    return self._progreso_vacio()
+            
+            where_clause = ''
+            if where_conditions:
+                where_clause = 'WHERE ' + ' AND '.join(where_conditions)
+            
+            # 1. Total clientes en cartera (FILTRADO por usuario)
+            cursor.execute(f'''
+                SELECT COUNT(DISTINCT nit_cliente) 
+                FROM cartera_actual 
+                {where_clause}
+            ''', params)
+            total_clientes = cursor.fetchone()[0] or 0
+            
+            # 2. Clientes gestionados en el período (FILTRADO por usuario)
+            gestion_conditions = []
+            gestion_params = []
+            
+            if user['rol'] in ['comercial', 'consulta']:
+                gestion_conditions.append('g.usuario = ?')
+                gestion_params.append(user['email'])
+            
+            # Aplicar mismo filtro de vendedor a las gestiones
+            if where_conditions:
+                gestion_conditions.append('ca.nombre_vendedor = ?')
+                gestion_params.append(params[0])  # El vendedor del usuario
+            
+            gestion_where = ''
+            if gestion_conditions:
+                gestion_where = 'WHERE ' + ' AND '.join(gestion_conditions)
+            
+            cursor.execute(f'''
+                SELECT COUNT(DISTINCT g.nit_cliente) 
+                FROM gestiones g
+                JOIN cartera_actual ca ON g.nit_cliente = ca.nit_cliente
+                {gestion_where}
+                AND g.fecha_contacto BETWEEN ? AND ?
+            ''', gestion_params + [fecha_inicio, fecha_fin])
+            clientes_gestionados = cursor.fetchone()[0] or 0
+            
+            # 3. Clientes en mora (FILTRADO por usuario)
+            mora_conditions = where_conditions.copy()
+            mora_conditions.append('dias_vencidos > 0')
+            mora_where = 'WHERE ' + ' AND '.join(mora_conditions) if mora_conditions else ''
+            
+            cursor.execute(f'''
+                SELECT COUNT(DISTINCT nit_cliente) 
+                FROM cartera_actual 
+                {mora_where}
+            ''', params)
+            clientes_mora = cursor.fetchone()[0] or 0
+            
+            # 4. Clientes en mora gestionados en el período (FILTRADO por usuario)
+            mora_gestion_conditions = gestion_conditions.copy()
+            mora_gestion_conditions.append('ca.dias_vencidos > 0')
+            mora_gestion_where = 'WHERE ' + ' AND '.join(mora_gestion_conditions) if mora_gestion_conditions else ''
+            
+            cursor.execute(f'''
+                SELECT COUNT(DISTINCT g.nit_cliente) 
+                FROM gestiones g
+                JOIN cartera_actual ca ON g.nit_cliente = ca.nit_cliente
+                {mora_gestion_where}
+                AND g.fecha_contacto BETWEEN ? AND ?
+            ''', gestion_params + [fecha_inicio, fecha_fin])
+            clientes_mora_gestionados = cursor.fetchone()[0] or 0
+            
+            conn.close()
+            
+            # Calcular porcentajes
+            porcentaje_general = (clientes_gestionados / total_clientes * 100) if total_clientes > 0 else 0
+            porcentaje_mora = (clientes_mora_gestionados / clientes_mora * 100) if clientes_mora > 0 else 0
+            
+            print(f"🔍 DEBUG Progreso Gestión - Período: {fecha_inicio} a {fecha_fin}")
+            print(f"   Total clientes: {total_clientes}")
+            print(f"   Clientes gestionados: {clientes_gestionados}")
+            print(f"   Clientes en mora: {clientes_mora}")
+            print(f"   Clientes mora gestionados: {clientes_mora_gestionados}")
+            print(f"   Porcentaje general: {porcentaje_general:.1f}%")
+            print(f"   Porcentaje mora: {porcentaje_mora:.1f}%")
+            
+            return {
+                'total_clientes': total_clientes,
+                'clientes_gestionados': clientes_gestionados,
+                'clientes_mora': clientes_mora,
+                'clientes_mora_gestionados': clientes_mora_gestionados,
+                'porcentaje_general': porcentaje_general,
+                'porcentaje_mora': porcentaje_mora,
+                'periodo': f"{fecha_inicio} a {fecha_fin}"
+            }
+            
+        except Exception as e:
+            print(f"❌ Error en obtener_progreso_gestion: {e}")
+            return self._progreso_vacio()
+        finally:
+            try:
+                conn.close()
+            except:
+                pass
+
+    def obtener_estadisticas_resultados_filtrado(self, fecha_inicio=None, fecha_fin=None):
+        """Obtiene estadísticas FILTRADAS por usuario actual y período específico"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        user = self.current_user
+        if not user:
+            return {}
+        
+        # Si no se especifican fechas, usar mes actual por defecto
+        if not fecha_inicio or not fecha_fin:
+            fecha_inicio = datetime.now().replace(day=1).strftime('%Y-%m-%d')
+            fecha_fin = datetime.now().strftime('%Y-%m-%d')
+        
+        try:
+            # SIEMPRE filtrar por usuario para comercial/consulta
+            if user['rol'] in ['comercial', 'consulta']:
+                query = '''
+                    SELECT 
+                        COUNT(CASE WHEN resultado LIKE '%Promesa%' OR resultado LIKE '%Pago%' THEN 1 END) as compromisos,
+                        COUNT(CASE WHEN resultado LIKE '%Contacto%' OR resultado LIKE '%Mensaje%' OR resultado LIKE '%Email%' THEN 1 END) as contactos,
+                        COUNT(CASE WHEN resultado LIKE '%Dificultad%' OR resultado LIKE '%Negativa%' OR resultado LIKE '%Reclamo%' THEN 1 END) as dificultades,
+                        COUNT(CASE WHEN resultado LIKE '%Seguimiento%' OR resultado LIKE '%Escalación%' OR resultado LIKE '%Documentación%' THEN 1 END) as seguimientos
+                    FROM gestiones 
+                    WHERE fecha_contacto BETWEEN ? AND ?
+                    AND usuario = ?
+                '''
+                cursor.execute(query, (fecha_inicio, fecha_fin, user['email']))
+            else:
+                query = '''
+                    SELECT 
+                        COUNT(CASE WHEN resultado LIKE '%Promesa%' OR resultado LIKE '%Pago%' THEN 1 END) as compromisos,
+                        COUNT(CASE WHEN resultado LIKE '%Contacto%' OR resultado LIKE '%Mensaje%' OR resultado LIKE '%Email%' THEN 1 END) as contactos,
+                        COUNT(CASE WHEN resultado LIKE '%Dificultad%' OR resultado LIKE '%Negativa%' OR resultado LIKE '%Reclamo%' THEN 1 END) as dificultades,
+                        COUNT(CASE WHEN resultado LIKE '%Seguimiento%' OR resultado LIKE '%Escalación%' OR resultado LIKE '%Documentación%' THEN 1 END) as seguimientos
+                    FROM gestiones 
+                    WHERE fecha_contacto BETWEEN ? AND ?
+                '''
+                cursor.execute(query, (fecha_inicio, fecha_fin))
+            
+            resultado = cursor.fetchone()
+            conn.close()
+            
+            if resultado:
+                return {
+                    'Compromisos de Pago': resultado[0] or 0,
+                    'Contactos Exitosos': resultado[1] or 0,
+                    'Dificultades/Rechazos': resultado[2] or 0,
+                    'Seguimientos Pendientes': resultado[3] or 0
+                }
+            return {}
+            
+        except Exception as e:
+            conn.close()
+            print(f"Error en obtener_estadisticas_resultados_filtrado: {e}")
+            return {}
+
+    def obtener_evolucion_diaria_gestiones(self, fecha_inicio=None, fecha_fin=None):
+        """Obtiene evolución diaria de gestiones para un período específico"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        user = self.current_user
+        if not user:
+            return []
+        
+        # Si no se especifican fechas, usar mes actual por defecto
+        if not fecha_inicio or not fecha_fin:
+            fecha_inicio = datetime.now().replace(day=1).strftime('%Y-%m-%d')
+            fecha_fin = datetime.now().strftime('%Y-%m-%d')
+        
+        try:
+            if user['rol'] in ['comercial', 'consulta']:
+                cursor.execute('''
+                    SELECT 
+                        DATE(fecha_contacto) as fecha,
+                        COUNT(*) as total_gestiones,
+                        COUNT(DISTINCT nit_cliente) as clientes_unicos
+                    FROM gestiones 
+                    WHERE fecha_contacto BETWEEN ? AND ?
+                    AND usuario = ?
+                    GROUP BY DATE(fecha_contacto)
+                    ORDER BY fecha
+                ''', (fecha_inicio, fecha_fin, user['email']))
+            else:
+                cursor.execute('''
+                    SELECT 
+                        DATE(fecha_contacto) as fecha,
+                        COUNT(*) as total_gestiones,
+                        COUNT(DISTINCT nit_cliente) as clientes_unicos
+                    FROM gestiones 
+                    WHERE fecha_contacto BETWEEN ? AND ?
+                    GROUP BY DATE(fecha_contacto)
+                    ORDER BY fecha
+                ''', (fecha_inicio, fecha_fin))
+            
+            resultado = cursor.fetchall()
+            conn.close()
+            return resultado
+            
+        except Exception as e:
+            conn.close()
+            print(f"Error en obtener_evolucion_diaria_gestiones: {e}")
+            return []
+
+    def obtener_evolucion_historica_gestiones(self, fecha_inicio=None, fecha_fin=None):
+        """Obtiene evolución histórica de gestiones para un período específico"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        user = self.current_user
+        if not user:
+            return [], 0
+        
+        # Si no se especifican fechas, usar últimos 12 meses por defecto
+        if not fecha_inicio or not fecha_fin:
+            fecha_fin = datetime.now().strftime('%Y-%m-%d')
+            fecha_inicio = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
+        
+        try:
+            # Condiciones de filtro según usuario
+            user_condition = ""
+            user_params = []
+            
+            if user['rol'] in ['comercial', 'consulta']:
+                user_condition = "AND usuario = ?"
+                user_params = [user['email']]
+            
+            # Obtener total de gestiones por mes en el período
+            query = f'''
+                SELECT 
+                    strftime('%Y-%m', fecha_contacto) as mes,
+                    COUNT(*) as total_gestiones
+                FROM gestiones 
+                WHERE fecha_contacto BETWEEN ? AND ?
+                {user_condition}
+                GROUP BY mes 
+                ORDER BY mes
+            '''
+            
+            cursor.execute(query, [fecha_inicio, fecha_fin] + user_params)
+            datos_mensuales = cursor.fetchall()
+            
+            # Calcular máximo histórico
+            max_historico = 0
+            if datos_mensuales:
+                max_historico = max([item[1] for item in datos_mensuales])
+            
+            conn.close()
+            return datos_mensuales, max_historico
+            
+        except Exception as e:
+            conn.close()
+            print(f"Error en obtener_evolucion_historica_gestiones: {e}")
+            return [], 0
+
+    # ============================================================
+    # FUNCIONES AUXILIARES Y DE COMPATIBILIDAD
+    # ============================================================
+
+    def _progreso_vacio(self):
+        """Retorna progreso vacío cuando no hay datos"""
+        return {
+            'total_clientes': 0,
+            'clientes_gestionados': 0,
+            'clientes_mora': 0,
+            'clientes_mora_gestionados': 0,
+            'porcentaje_general': 0,
+            'porcentaje_mora': 0,
+            'periodo': 'Sin datos'
+        }
+
+    def obtener_gestiones_mes_actual(self):
+        """Función de compatibilidad - usa el nuevo sistema con mes actual por defecto"""
+        fecha_inicio = datetime.now().replace(day=1).strftime('%Y-%m-%d')
+        fecha_fin = datetime.now().strftime('%Y-%m-%d')
+        return self.obtener_gestiones_por_periodo(fecha_inicio, fecha_fin)
+
     def importar_gestiones_excel(self, file_path):
         """Importa gestiones desde archivo Excel"""
         try:
@@ -948,319 +1312,9 @@ class DatabaseManager:
             print(f"Error en obtener_clientes_filtrados: {e}")
             return pd.DataFrame()
 
-
-    def obtener_progreso_gestion(self):
-        """Obtiene progreso de gestión mensual"""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            user = self.current_user
-            if not user:
-                conn.close()
-                return self._progreso_vacio()
-            
-            # Obtener condiciones de filtro según el usuario
-            where_conditions = []
-            params = []
-            
-            if user['rol'] in ['comercial', 'consulta']:
-                vendedor = user.get('vendedor_asignado')
-                if vendedor:
-                    where_conditions.append('nombre_vendedor = ?')
-                    params.append(vendedor)
-                else:
-                    # Si es comercial pero no tiene vendedor, no mostrar datos
-                    conn.close()
-                    return self._progreso_vacio()
-            
-            where_clause = ''
-            if where_conditions:
-                where_clause = 'WHERE ' + ' AND '.join(where_conditions)
-            
-            # 1. Total clientes en cartera (FILTRADO por usuario)
-            cursor.execute(f'''
-                SELECT COUNT(DISTINCT nit_cliente) 
-                FROM cartera_actual 
-                {where_clause}
-            ''', params)
-            total_clientes = cursor.fetchone()[0] or 0
-            
-            # 2. Clientes gestionados este mes (FILTRADO por usuario)
-            gestion_conditions = []
-            gestion_params = []
-            
-            if user['rol'] in ['comercial', 'consulta']:
-                gestion_conditions.append('g.usuario = ?')
-                gestion_params.append(user['email'])
-            
-            # Aplicar mismo filtro de vendedor a las gestiones
-            if where_conditions:
-                gestion_conditions.append('ca.nombre_vendedor = ?')
-                gestion_params.append(params[0])  # El vendedor del usuario
-            
-            gestion_where = ''
-            if gestion_conditions:
-                gestion_where = 'WHERE ' + ' AND '.join(gestion_conditions)
-            
-            cursor.execute(f'''
-                SELECT COUNT(DISTINCT g.nit_cliente) 
-                FROM gestiones g
-                JOIN cartera_actual ca ON g.nit_cliente = ca.nit_cliente
-                {gestion_where}
-                AND strftime("%Y-%m", g.fecha_contacto) = strftime("%Y-%m", "now")
-            ''', gestion_params)
-            clientes_gestionados = cursor.fetchone()[0] or 0
-            
-            # 3. Clientes en mora (FILTRADO por usuario)
-            mora_conditions = where_conditions.copy()
-            mora_conditions.append('dias_vencidos > 0')
-            mora_where = 'WHERE ' + ' AND '.join(mora_conditions) if mora_conditions else ''
-            
-            cursor.execute(f'''
-                SELECT COUNT(DISTINCT nit_cliente) 
-                FROM cartera_actual 
-                {mora_where}
-            ''', params)
-            clientes_mora = cursor.fetchone()[0] or 0
-            
-            # 4. Clientes en mora gestionados (FILTRADO por usuario)
-            mora_gestion_conditions = gestion_conditions.copy()
-            mora_gestion_conditions.append('ca.dias_vencidos > 0')
-            mora_gestion_where = 'WHERE ' + ' AND '.join(mora_gestion_conditions) if mora_gestion_conditions else ''
-            
-            cursor.execute(f'''
-                SELECT COUNT(DISTINCT g.nit_cliente) 
-                FROM gestiones g
-                JOIN cartera_actual ca ON g.nit_cliente = ca.nit_cliente
-                {mora_gestion_where}
-                AND strftime("%Y-%m", g.fecha_contacto) = strftime("%Y-%m", "now")
-            ''', gestion_params)
-            clientes_mora_gestionados = cursor.fetchone()[0] or 0
-            
-            conn.close()
-            
-            # Calcular porcentajes
-            porcentaje_general = (clientes_gestionados / total_clientes * 100) if total_clientes > 0 else 0
-            porcentaje_mora = (clientes_mora_gestionados / clientes_mora * 100) if clientes_mora > 0 else 0
-            
-            print(f"🔍 DEBUG Progreso Gestión:")
-            print(f"   Total clientes: {total_clientes}")
-            print(f"   Clientes gestionados: {clientes_gestionados}")
-            print(f"   Clientes en mora: {clientes_mora}")
-            print(f"   Clientes mora gestionados: {clientes_mora_gestionados}")
-            print(f"   Porcentaje general: {porcentaje_general:.1f}%")
-            print(f"   Porcentaje mora: {porcentaje_mora:.1f}%")
-            
-            return {
-                'total_clientes': total_clientes,
-                'clientes_gestionados': clientes_gestionados,
-                'clientes_mora': clientes_mora,
-                'clientes_mora_gestionados': clientes_mora_gestionados,
-                'porcentaje_general': porcentaje_general,
-                'porcentaje_mora': porcentaje_mora
-            }
-            
-        except Exception as e:
-            print(f"❌ Error en obtener_progreso_gestion: {e}")
-            return self._progreso_vacio()
-        finally:
-            try:
-                conn.close()
-            except:
-                pass
-    
-    def obtener_estadisticas_resultados(self):
-        """Obtiene estadísticas de resultados de gestión para gráfica de barras - FILTRADO POR USUARIO"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        user = self.current_user
-        if not user:
-            return {}
-        
-        try:
-            if user['rol'] in ['comercial', 'consulta']:
-                # ✅ SOLO las gestiones del usuario actual
-                cursor.execute('''
-                    SELECT 
-                        COUNT(CASE WHEN resultado LIKE '%Promesa%' OR resultado LIKE '%Pago%' OR resultado IN ('1. Promesa de Pago Total (Fecha/Monto)', '2. Promesa de Pago Parcial (Fecha/Monto)', '3. Acuerdo de Pago Formalizado (Cuotas)', '4. Pago Efectuado / Cobro Exitoso') THEN 1 END) as compromisos,
-                        COUNT(CASE WHEN resultado LIKE '%Contacto%' OR resultado LIKE '%Mensaje%' OR resultado LIKE '%Email%' OR resultado IN ('5. Contacto Exitoso (Titular)', '6. Contacto con Tercero (Informó/Transmitió mensaje)', '7. Dejó Mensaje / Correo de Voz', '8. No Contesta / Ocupado', '9. Número Erróneo / Inexistente', '10. Email/Mensaje Enviado') THEN 1 END) as contactos,
-                        COUNT(CASE WHEN resultado LIKE '%Dificultad%' OR resultado LIKE '%Negativa%' OR resultado LIKE '%Reclamo%' OR resultado LIKE '%Quiebra%' OR resultado IN ('11. Disputa / Reclamo de Facturación', '12. Problema de Servicio (Pendiente de Resolver)', '13. Negativa de Pago (Dificultad temporal)', '14. Negativa de Pago (Rechazo definitivo)', '15. Quiebra / Insolvencia Confirmada', '16. Cliente Inactivo / Ilocalizable') THEN 1 END) as dificultades,
-                        COUNT(CASE WHEN resultado LIKE '%Seguimiento%' OR resultado LIKE '%Escalación%' OR resultado LIKE '%Documentación%' OR resultado LIKE '%Agendar%' OR resultado LIKE '%Verificad%' OR resultado IN ('17. Necesita Escalación (A Legal/Supervisión)', '18. Enviar Documentación Solicitada (Factura/Extracto)', '19. Agendar Nueva Llamada / Cita', '20. Datos Verificados / Actualizados', '21. Gestión No Finalizada (Reintentar pronto)') THEN 1 END) as seguimientos
-                    FROM gestiones 
-                    WHERE strftime("%Y-%m", fecha_contacto) = strftime("%Y-%m", "now") 
-                    AND usuario = ?
-                ''', (user['email'],))
-            else:
-                # ✅ Admin y supervisor ven TODAS las gestiones
-                cursor.execute('''
-                    SELECT 
-                        COUNT(CASE WHEN resultado LIKE '%Promesa%' OR resultado LIKE '%Pago%' OR resultado IN ('1. Promesa de Pago Total (Fecha/Monto)', '2. Promesa de Pago Parcial (Fecha/Monto)', '3. Acuerdo de Pago Formalizado (Cuotas)', '4. Pago Efectuado / Cobro Exitoso') THEN 1 END) as compromisos,
-                        COUNT(CASE WHEN resultado LIKE '%Contacto%' OR resultado LIKE '%Mensaje%' OR resultado LIKE '%Email%' OR resultado IN ('5. Contacto Exitoso (Titular)', '6. Contacto con Tercero (Informó/Transmitió mensaje)', '7. Dejó Mensaje / Correo de Voz', '8. No Contesta / Ocupado', '9. Número Erróneo / Inexistente', '10. Email/Mensaje Enviado') THEN 1 END) as contactos,
-                        COUNT(CASE WHEN resultado LIKE '%Dificultad%' OR resultado LIKE '%Negativa%' OR resultado LIKE '%Reclamo%' OR resultado LIKE '%Quiebra%' OR resultado IN ('11. Disputa / Reclamo de Facturación', '12. Problema de Servicio (Pendiente de Resolver)', '13. Negativa de Pago (Dificultad temporal)', '14. Negativa de Pago (Rechazo definitivo)', '15. Quiebra / Insolvencia Confirmada', '16. Cliente Inactivo / Ilocalizable') THEN 1 END) as dificultades,
-                        COUNT(CASE WHEN resultado LIKE '%Seguimiento%' OR resultado LIKE '%Escalación%' OR resultado LIKE '%Documentación%' OR resultado LIKE '%Agendar%' OR resultado LIKE '%Verificad%' OR resultado IN ('17. Necesita Escalación (A Legal/Supervisión)', '18. Enviar Documentación Solicitada (Factura/Extracto)', '19. Agendar Nueva Llamada / Cita', '20. Datos Verificados / Actualizados', '21. Gestión No Finalizada (Reintentar pronto)') THEN 1 END) as seguimientos
-                    FROM gestiones 
-                    WHERE strftime("%Y-%m", fecha_contacto) = strftime("%Y-%m", "now")
-                ''')
-            
-            resultado = cursor.fetchone()
-            conn.close()
-            
-            if resultado:
-                return {
-                    'Compromisos de Pago': resultado[0] or 0,
-                    'Contactos Exitosos': resultado[1] or 0,
-                    'Dificultades/Rechazos': resultado[2] or 0,
-                    'Seguimientos Pendientes': resultado[3] or 0
-                }
-            return {}
-            
-        except Exception as e:
-            conn.close()
-            print(f"Error en obtener_estadisticas_resultados: {e}")
-            return {}
-        
-    def obtener_estadisticas_resultados_filtrado(self):
-        """Obtiene estadísticas FILTRADAS por usuario actual"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        user = self.current_user
-        if not user:
-            return {}
-        
-        try:
-            # SIEMPRE filtrar por usuario para comercial/consulta
-            if user['rol'] in ['comercial', 'consulta']:
-                query = '''
-                    SELECT 
-                        COUNT(CASE WHEN resultado LIKE '%Promesa%' OR resultado LIKE '%Pago%' THEN 1 END) as compromisos,
-                        COUNT(CASE WHEN resultado LIKE '%Contacto%' OR resultado LIKE '%Mensaje%' OR resultado LIKE '%Email%' THEN 1 END) as contactos,
-                        COUNT(CASE WHEN resultado LIKE '%Dificultad%' OR resultado LIKE '%Negativa%' OR resultado LIKE '%Reclamo%' THEN 1 END) as dificultades,
-                        COUNT(CASE WHEN resultado LIKE '%Seguimiento%' OR resultado LIKE '%Escalación%' OR resultado LIKE '%Documentación%' THEN 1 END) as seguimientos
-                    FROM gestiones 
-                    WHERE strftime("%Y-%m", fecha_contacto) = strftime("%Y-%m", "now") 
-                    AND usuario = ?
-                '''
-                cursor.execute(query, (user['email'],))
-            else:
-                query = '''
-                    SELECT 
-                        COUNT(CASE WHEN resultado LIKE '%Promesa%' OR resultado LIKE '%Pago%' THEN 1 END) as compromisos,
-                        COUNT(CASE WHEN resultado LIKE '%Contacto%' OR resultado LIKE '%Mensaje%' OR resultado LIKE '%Email%' THEN 1 END) as contactos,
-                        COUNT(CASE WHEN resultado LIKE '%Dificultad%' OR resultado LIKE '%Negativa%' OR resultado LIKE '%Reclamo%' THEN 1 END) as dificultades,
-                        COUNT(CASE WHEN resultado LIKE '%Seguimiento%' OR resultado LIKE '%Escalación%' OR resultado LIKE '%Documentación%' THEN 1 END) as seguimientos
-                    FROM gestiones 
-                    WHERE strftime("%Y-%m", fecha_contacto) = strftime("%Y-%m", "now")
-                '''
-                cursor.execute(query)
-            
-            resultado = cursor.fetchone()
-            conn.close()
-            
-            if resultado:
-                return {
-                    'Compromisos de Pago': resultado[0] or 0,
-                    'Contactos Exitosos': resultado[1] or 0,
-                    'Dificultades/Rechazos': resultado[2] or 0,
-                    'Seguimientos Pendientes': resultado[3] or 0
-                }
-            return {}
-            
-        except Exception as e:
-            conn.close()
-            print(f"Error en obtener_estadisticas_resultados_filtrado: {e}")
-            return {}
-
-    def obtener_evolucion_diaria_gestiones(self):
-        """Obtiene evolución diaria de gestiones para gráfica de líneas - MÉTODO IMPLEMENTADO"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        user = self.current_user
-        if not user:
-            return []
-        
-        try:
-            if user['rol'] in ['comercial', 'consulta']:
-                cursor.execute('''
-                    SELECT 
-                        DATE(fecha_contacto) as fecha,
-                        COUNT(*) as total_gestiones,
-                        COUNT(DISTINCT nit_cliente) as clientes_unicos
-                    FROM gestiones 
-                    WHERE strftime("%Y-%m", fecha_contacto) = strftime("%Y-%m", "now")
-                    AND usuario = ?
-                    GROUP BY DATE(fecha_contacto)
-                    ORDER BY fecha
-                ''', (user['email'],))
-            else:
-                cursor.execute('''
-                    SELECT 
-                        DATE(fecha_contacto) as fecha,
-                        COUNT(*) as total_gestiones,
-                        COUNT(DISTINCT nit_cliente) as clientes_unicos
-                    FROM gestiones 
-                    WHERE strftime("%Y-%m", fecha_contacto) = strftime("%Y-%m", "now")
-                    GROUP BY DATE(fecha_contacto)
-                    ORDER BY fecha
-                ''')
-            
-            resultado = cursor.fetchall()
-            conn.close()
-            return resultado
-            
-        except Exception as e:
-            conn.close()
-            print(f"Error en obtener_evolucion_diaria_gestiones: {e}")
-            return []
-
-    def obtener_evolucion_historica_gestiones(self):
-        """Obtiene evolución histórica de gestiones para gráfica de líneas (últimos 12 meses)"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        user = self.current_user
-        if not user:
-            return [], 0
-        
-        try:
-            # Condiciones de filtro según usuario
-            user_condition = ""
-            user_params = []
-            
-            if user['rol'] in ['comercial', 'consulta']:
-                user_condition = "AND usuario = ?"
-                user_params = [user['email']]
-            
-            # Obtener total de gestiones por mes (últimos 12 meses)
-            query = f'''
-                SELECT 
-                    strftime('%Y-%m', fecha_contacto) as mes,
-                    COUNT(*) as total_gestiones
-                FROM gestiones 
-                WHERE fecha_contacto >= date('now', '-12 months')
-                {user_condition}
-                GROUP BY mes 
-                ORDER BY mes
-            '''
-            
-            cursor.execute(query, user_params)
-            datos_mensuales = cursor.fetchall()
-            
-            # Calcular máximo histórico
-            max_historico = 0
-            if datos_mensuales:
-                max_historico = max([item[1] for item in datos_mensuales])
-            
-            conn.close()
-            return datos_mensuales, max_historico
-            
-        except Exception as e:
-            conn.close()
-            print(f"Error en obtener_evolucion_historica_gestiones: {e}")
-            return [], 0 
+    # ============================================================
+    # FUNCIONES DE HISTORIAL (EXISTENTES - SIN CAMBIOS)
+    # ============================================================
 
     def cargar_historial_completo(self, ruta_base="CARTERA DIARIA"):
         """Carga todos los archivos Excel históricos usando solo columnas básicas"""
@@ -1433,7 +1487,6 @@ class DatabaseManager:
         try:
             conn = sqlite3.connect(self.db_path)
             
-            # ⬇️⬇️⬇️ QUERY CORREGIDO - usar nombres de columnas correctos y quitar LIMIT ⬇️⬇️⬇️
             query = '''
             SELECT 
                 fecha_carga as "Fecha Carga",
@@ -1449,14 +1502,6 @@ class DatabaseManager:
             
             df = pd.read_sql_query(query, conn)
             conn.close()
-            
-            # ⬇️⬇️⬇️ DEBUG PARA VERIFICAR DATOS ⬇️⬇️⬇️
-            print(f"🔍 REPORTE CARGA - Total fechas: {len(df)}")
-            if not df.empty:
-                print(f"📊 MUESTRA DE DATOS EN REPORTE:")
-                for i, (_, row) in enumerate(df.head(5).iterrows()):  # Mostrar primeras 5 filas
-                    print(f"   {row['Fecha Carga']}: {row['Registros Cargados']} reg, "
-                        f"${row['Cartera Total']:,.0f} total, ${row['Cartera en Mora']:,.0f} mora")
             
             # Estadísticas resumen
             total_registros = df['Registros Cargados'].sum() if not df.empty else 0
@@ -1485,12 +1530,12 @@ class DatabaseManager:
             import glob
             from datetime import datetime
             
-            # Obtener fechas ya cargadas - CORREGIDO: usar conexión directa
-            conn = sqlite3.connect(self.db_path)  # ⬅️ CORREGIDO
+            # Obtener fechas ya cargadas
+            conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             cursor.execute('SELECT DISTINCT fecha_carga FROM historial_cartera_diario ORDER BY fecha_carga')
             fechas_cargadas = [row[0] for row in cursor.fetchall()]
-            conn.close()  # ⬅️ CORREGIDO
+            conn.close()
             
             print(f"📅 Fechas ya cargadas: {len(fechas_cargadas)}")
             
@@ -1558,7 +1603,7 @@ class DatabaseManager:
             mensaje_final += f"❌ Errores: {errores}\n"
             
             if resultados:
-                mensaje_final += f"\nResultados:\n" + "\n".join(resultados[-10:])  # Últimos 10 resultados
+                mensaje_final += f"\nResultados:\n" + "\n".join(resultados[-10:])
             
             return archivos_nuevos > 0, mensaje_final
             
