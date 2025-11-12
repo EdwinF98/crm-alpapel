@@ -982,7 +982,7 @@ def mostrar_panel_cliente_detallado():
         st.info("📝 No hay gestiones registradas para este cliente")
     
     # ====================
-    # SECCIÓN 5: ACCIONES RÁPIDAS
+    # SECCIÓN 5: ACCIONES RÁPIDAS - VERSIÓN MEJORADA
     # ====================
     st.markdown("---")
     st.subheader("🚀 Acciones Rápidas")
@@ -990,20 +990,125 @@ def mostrar_panel_cliente_detallado():
     col_acc1, col_acc2, col_acc3 = st.columns(3)
     
     with col_acc1:
-        if st.button("📞 Llamar al Cliente", use_container_width=True, key="btn_llamar_cliente"):
-            telefono = cliente.get('telefono') or cliente.get('celular')
-            if telefono and telefono != 'No disponible':
-                st.success(f"📞 Marcando: {telefono}")
+        if st.button("💬 WhatsApp Cliente", use_container_width=True, key="btn_whatsapp_cliente"):
+            # Obtener número prioritario (celular > telefono)
+            numero_whatsapp = None
+            celular = cliente.get('celular')
+            telefono = cliente.get('telefono')
+            
+            # Priorizar celular sobre teléfono
+            if celular and celular != 'No disponible' and str(celular).strip():
+                numero_whatsapp = str(celular).strip()
+            elif telefono and telefono != 'No disponible' and str(telefono).strip():
+                numero_whatsapp = str(telefono).strip()
+            
+            if numero_whatsapp:
+                # Limpiar número: eliminar espacios, guiones, paréntesis
+                numero_limpio = ''.join(filter(str.isdigit, numero_whatsapp))
+                
+                # Validar que sea un número colombiano (10 dígitos)
+                if len(numero_limpio) == 10 and numero_limpio.startswith(('3', '2', '1')):
+                    # Agregar prefijo internacional para Colombia
+                    numero_final = f"57{numero_limpio}"
+                    enlace_whatsapp = f"https://wa.me/{numero_final}"
+                    
+                    st.success(f"💬 WhatsApp listo para: {numero_whatsapp}")
+                    st.markdown(f"""
+                    **Opciones:**
+                    - 📱 **Abrir WhatsApp:** [Click aquí]({enlace_whatsapp})
+                    - 📋 **Número copiado:** `{numero_whatsapp}`
+                    """)
+                    
+                    # Mostrar enlace directo como botón adicional
+                    st.link_button("📱 Abrir Conversación WhatsApp", enlace_whatsapp)
+                else:
+                    st.warning(f"⚠️ Número no válido para WhatsApp: {numero_whatsapp}")
+                    st.info("El número debe tener 10 dígitos y formato colombiano")
             else:
-                st.warning("No hay número de teléfono disponible")
+                st.warning("📵 No hay número de contacto disponible para WhatsApp")
     
     with col_acc2:
-        if st.button("📧 Enviar Email", use_container_width=True, key="btn_email_cliente"):
+        if st.button("📧 Email Corporativo", use_container_width=True, key="btn_email_corporativo"):
             email = cliente.get('email')
-            if email and email != 'No disponible':
-                st.success(f"📧 Email: {email}")
+            if email and email != 'No disponible' and '@' in str(email):
+                # Obtener facturas vencidas del cliente
+                facturas_vencidas = datos['cartera'][datos['cartera']['dias_vencidos'] > 0]
+                
+                if not facturas_vencidas.empty:
+                    # Calcular variables para la plantilla
+                    razon_social = cliente.get('razon_social', 'Cliente')
+                    nit = cliente.get('nit_cliente', 'N/A')
+                    cantidad_facturas = len(facturas_vencidas)
+                    total_mora = facturas_vencidas['total_cop'].sum()
+                    max_dias_mora = facturas_vencidas['dias_vencidos'].max()
+                    
+                    # Formatear valores
+                    total_mora_formateado = f"{total_mora:,.0f}"
+                    
+                    # Plantilla de email CORPORATIVA
+                    asunto = "RECORDATORIO DE PAGO - ALPAPEL SAS"
+                    cuerpo = f"""Señores
+{razon_social}
+NIT: {nit}
+
+ASUNTO: {asunto}
+
+Estimado Cliente:
+
+Desde ALPAPEL S.A.S., nos permitimos informarles que actualmente presentan {cantidad_facturas} factura/s vencida/s por un valor de ${total_mora_formateado} COP, la/s cual/es a la fecha presenta/n hasta {max_dias_mora} días de mora.
+
+Recordamos que facturas con mora igual o superior a 10 días pueden generar bloqueos en futuros pedidos.
+
+Si realizó pagos que aún no están reflejados, por favor enviar el soporte al 3184776379 o hacer caso omiso en espera de su aplicación.
+
+Cuentas habilitadas:
+• Bancolombia – CC 23902956641
+• Banco de Bogotá – CC 032075574
+• Davivienda – CC 478069999447
+• Pagos por PSE, Tarjeta de crédito y debido (Solicitar al WhatsApp de cartera)
+
+Contacto:
+WhatsApp: 3184776379 / 3233255021
+Correo: cartera@alpapel.com / coordinador.cartera@alpapel.com
+
+Cordialmente,
+
+ALPAPEL S.A.S
+860.524.523-1"""
+                    
+                    # Codificar para URL
+                    asunto_codificado = asunto.replace(' ', '%20')
+                    cuerpo_codificado = cuerpo.replace('\n', '%0D%0A').replace(' ', '%20')
+                    
+                    enlace_email = f"mailto:{email}?subject={asunto_codificado}&body={cuerpo_codificado}"
+                    
+                    st.success(f"📧 Email corporativo listo para: {email}")
+                    st.markdown(f"""
+                    **Email preparado con:**
+                    - 📋 **Plantilla corporativa** completa
+                    - 📊 **{cantidad_facturas} facturas** en mora
+                    - 💰 **${total_mora_formateado} COP** pendientes
+                    - ⏰ **Hasta {max_dias_mora} días** de mora
+                    """)
+                    
+                    # Mostrar enlace directo como botón adicional
+                    st.link_button("📧 Abrir Email Corporativo", enlace_email)
+                    
+                else:
+                    # Cliente SIN facturas vencidas - Email vacío
+                    enlace_email = f"mailto:{email}"
+                    
+                    st.success(f"📧 Email listo para: {email}")
+                    st.info("""
+                    **Cliente al día - Email vacío:**
+                    - 📧 **Destinatario:** {email}
+                    - 📝 **Asunto y cuerpo:** Vacíos para redacción personalizada
+                    """)
+                    
+                    # Mostrar enlace directo como botón adicional
+                    st.link_button("📧 Abrir Email", enlace_email)
             else:
-                st.warning("No hay email disponible")
+                st.warning("📧 No hay dirección de email válida disponible")
     
     with col_acc3:
         if st.button("📋 Ir a Gestión", use_container_width=True, key="btn_ir_gestion"):
@@ -1018,6 +1123,7 @@ def mostrar_panel_cliente_detallado():
                 st.success("🔄 Navegando a Gestión...")
                 
                 # ✅ DELAY CORTO Y RERUN FORZADO
+                import time
                 time.sleep(0.3)
                 st.rerun()
             else:
