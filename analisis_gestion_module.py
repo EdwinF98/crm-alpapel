@@ -14,10 +14,6 @@ def analisis_gestion_section():
     # ✅ INICIALIZAR ESTADO CORRECTAMENTE
     if 'filtro_periodo_gestion' not in st.session_state:
         st.session_state.filtro_periodo_gestion = "Mes Actual"
-    if 'fecha_inicio_personalizada' not in st.session_state:
-        st.session_state.fecha_inicio_personalizada = None
-    if 'fecha_fin_personalizada' not in st.session_state:
-        st.session_state.fecha_fin_personalizada = None
     
     try:
         # 1. FILTROS PRINCIPALES (con manejo correcto del estado)
@@ -99,35 +95,36 @@ def mostrar_filtros_gestion():
         col_fecha1, col_fecha2 = st.columns(2)
         
         with col_fecha1:
-            fecha_inicio_personalizada = st.date_input(
+            # Usar keys únicas y manejar por separado
+            fecha_inicio_seleccionada = st.date_input(
                 "Fecha de inicio:",
-                value=datetime.now().replace(day=1),  # Por defecto: primer día del mes
+                value=datetime.now().replace(day=1),
                 max_value=datetime.now(),
-                key="fecha_inicio_personalizada"
+                key="fecha_inicio_personalizada_unique"
             )
         
         with col_fecha2:
-            fecha_fin_personalizada = st.date_input(
+            fecha_fin_seleccionada = st.date_input(
                 "Fecha de fin:",
-                value=datetime.now(),  # Por defecto: hoy
+                value=datetime.now(),
                 max_value=datetime.now(),
-                key="fecha_fin_personalizada"
+                key="fecha_fin_personalizada_unique"
             )
         
         # Validar que la fecha de inicio no sea mayor que la de fin
-        if fecha_inicio_personalizada > fecha_fin_personalizada:
+        if fecha_inicio_seleccionada > fecha_fin_seleccionada:
             st.error("❌ La fecha de inicio no puede ser mayor que la fecha de fin")
-            # Usar valores por defecto si hay error
-            fecha_inicio_personalizada = datetime.now().replace(day=1)
-            fecha_fin_personalizada = datetime.now()
+            # Usar valores por defecto
+            fecha_inicio_seleccionada = datetime.now().replace(day=1)
+            fecha_fin_seleccionada = datetime.now()
         
-        # Guardar en session_state
-        st.session_state.fecha_inicio_personalizada = fecha_inicio_personalizada.strftime('%Y-%m-%d')
-        st.session_state.fecha_fin_personalizada = fecha_fin_personalizada.strftime('%Y-%m-%d')
+        # Guardar en variables temporales (NO en session_state aquí)
+        fecha_inicio_temp = fecha_inicio_seleccionada.strftime('%Y-%m-%d')
+        fecha_fin_temp = fecha_fin_seleccionada.strftime('%Y-%m-%d')
     else:
-        # Limpiar fechas personalizadas si no se usa ese filtro
-        st.session_state.fecha_inicio_personalizada = None
-        st.session_state.fecha_fin_personalizada = None
+        # No usar fechas personalizadas para otros períodos
+        fecha_inicio_temp = None
+        fecha_fin_temp = None
     
     # Botones de acción - CORREGIDOS
     col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 2])
@@ -146,13 +143,12 @@ def mostrar_filtros_gestion():
             st.rerun()
     
     with col_btn3:
-        # Obtener y mostrar el rango de fechas calculado
+        # Calcular y retornar el rango de fechas
         fecha_inicio, fecha_fin = st.session_state.db.obtener_rango_fechas_por_periodo(
             periodo_seleccionado,
-            st.session_state.fecha_inicio_personalizada,
-            st.session_state.fecha_fin_personalizada
+            fecha_inicio_temp,  # Usar la variable temporal
+            fecha_fin_temp      # Usar la variable temporal
         )
-        st.info(f"📊 Período: {fecha_inicio} a {fecha_fin}")
     
     # Calcular y retornar el rango de fechas
     fecha_inicio, fecha_fin = st.session_state.db.obtener_rango_fechas_por_periodo(
