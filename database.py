@@ -956,10 +956,11 @@ class DatabaseManager:
         return self.obtener_gestiones_por_periodo(fecha_inicio, fecha_fin)
 
     def importar_gestiones_excel(self, file_path):
-        """Importa gestiones desde archivo Excel con validaciones robustas"""
+        """Importa gestiones desde archivo Excel con validaciones robustas y estadísticas detalladas"""
         try:
             # Leer archivo Excel
             df = pd.read_excel(file_path)
+            total_registros_archivo = len(df)
             
             # Validar estructura básica del archivo
             columnas_requeridas = ['nit_cliente', 'razon_social_cliente', 'fecha_contacto', 'tipo_contacto', 'resultado']
@@ -980,6 +981,9 @@ class DatabaseManager:
             gestiones_importadas = 0
             gestiones_con_errores = 0
             errores_detallados = []
+            nits_procesados = set()
+            total_promesas_monto = 0
+            gestiones_con_promesa = 0
             
             for index, row in df.iterrows():
                 try:
@@ -1014,6 +1018,13 @@ class DatabaseManager:
                         errores_detallados.append(f"Fila {index + 2}: Resultado '{row['resultado']}' inválido")
                         continue
                     
+                    # Calcular monto de promesa si existe
+                    monto_promesa = 0
+                    if pd.notna(row.get('promesa_pago_monto')) and row.get('promesa_pago_monto', 0) > 0:
+                        monto_promesa = float(row.get('promesa_pago_monto', 0))
+                        total_promesas_monto += monto_promesa
+                        gestiones_con_promesa += 1
+                    
                     # Insertar gestión
                     cursor.execute('''
                         INSERT INTO gestiones 
@@ -1029,10 +1040,13 @@ class DatabaseManager:
                         str(row.get('usuario', 'importado_excel')),
                         str(row.get('observaciones', '')),
                         promesa_fecha,
-                        float(row.get('promesa_pago_monto', 0)) if pd.notna(row.get('promesa_pago_monto')) and row.get('promesa_pago_monto', 0) > 0 else None,
+                        monto_promesa if monto_promesa > 0 else None,
                         proxima_gestion
                     ))
+                    
+                    # Actualizar estadísticas
                     gestiones_importadas += 1
+                    nits_procesados.add(str(row['nit_cliente']))
                     
                 except Exception as e:
                     gestiones_con_errores += 1
@@ -1042,13 +1056,29 @@ class DatabaseManager:
             conn.commit()
             conn.close()
             
-            # Preparar mensaje de resultado
-            mensaje_resultado = f"Importación completada: {gestiones_importadas} gestiones importadas"
-            if gestiones_con_errores > 0:
-                mensaje_resultado += f", {gestiones_con_errores} con errores"
-            
-            if errores_detallados:
-                mensaje_resultado += f"\n\nErrores detectados:\n" + "\n".join(errores_detallados[:3])
+            # Preparar mensaje de resultado CON ESTADÍSTICAS DETALLADAS
+            if gestiones_importadas > 0:
+                mensaje_resultado = f"✅ IMPORTACIÓN COMPLETADA EXITOSAMENTE\n\n"
+                mensaje_resultado += f"📊 RESUMEN DE IMPORTACIÓN:\n"
+                mensaje_resultado += f"• Registros procesados: {total_registros_archivo}\n"
+                mensaje_resultado += f"• Gestiones importadas: {gestiones_importadas}\n"
+                mensaje_resultado += f"• Registros con errores: {gestiones_con_errores}\n"
+                mensaje_resultado += f"• Clientes únicos: {len(nits_procesados)}\n"
+                mensaje_resultado += f"• Gestiones con promesa: {gestiones_con_promesa}\n"
+                mensaje_resultado += f"• Monto total promesas: ${total_promesas_monto:,.0f}\n"
+                
+                if gestiones_con_errores > 0:
+                    mensaje_resultado += f"\n⚠️ ERRORES DETECTADOS ({min(len(errores_detallados), 5)} de {len(errores_detallados)}):\n"
+                    for error in errores_detallados[:5]:  # Mostrar máximo 5 errores
+                        mensaje_resultado += f"• {error}\n"
+                    
+                    if len(errores_detallados) > 5:
+                        mensaje_resultado += f"• ... y {len(errores_detallados) - 5} errores más\n"
+            else:
+                mensaje_resultado = f"❌ IMPORTACIÓN FALLIDA\n\n"
+                mensaje_resultado += f"No se pudieron importar gestiones. Errores encontrados:\n"
+                for error in errores_detallados[:10]:  # Mostrar máximo 10 errores
+                    mensaje_resultado += f"• {error}\n"
             
             return gestiones_importadas > 0, mensaje_resultado
             

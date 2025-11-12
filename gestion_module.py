@@ -824,7 +824,7 @@ def obtener_formato_ejemplo(campo):
     return formatos.get(campo, 'Consultar guía de campos')
 
 def importar_gestiones_desde_archivo(archivo_subido):
-    """Importa gestiones desde un archivo Excel con validaciones mejoradas"""
+    """Importa gestiones desde un archivo Excel con validaciones mejoradas y muestra resumen detallado"""
     
     try:
         with st.spinner("📥 Validando y importando gestiones..."):
@@ -842,26 +842,66 @@ def importar_gestiones_desde_archivo(archivo_subido):
             os.unlink(tmp_path)
             
             if success:
-                st.success(f"✅ {message}")
+                # Mostrar resumen expandido con formato mejorado
+                st.success("### ✅ IMPORTACIÓN COMPLETADA")
+                
+                # Dividir el mensaje en líneas para mejor formato
+                lineas = message.split('\n')
+                for linea in lineas:
+                    if linea.startswith('📊') or linea.startswith('⚠️'):
+                        st.subheader(linea)
+                    elif linea.startswith('•'):
+                        st.write(linea)
+                    elif linea.strip() and not linea.startswith('✅'):
+                        st.info(linea)
+                
+                # Mostrar métricas visuales si hay gestiones importadas
+                if "Gestiones importadas:" in message:
+                    try:
+                        # Extraer números del mensaje para métricas
+                        import re
+                        gestiones_importadas = re.search(r'Gestiones importadas: (\d+)', message)
+                        clientes_unicos = re.search(r'Clientes únicos: (\d+)', message)
+                        monto_promesas = re.search(r'Monto total promesas: \$([\d,]+)', message)
+                        
+                        if gestiones_importadas and clientes_unicos:
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("Gestiones Importadas", gestiones_importadas.group(1))
+                            with col2:
+                                st.metric("Clientes Únicos", clientes_unicos.group(1))
+                            with col3:
+                                if monto_promesas:
+                                    st.metric("Monto Promesas", monto_promesas.group(1))
+                    except:
+                        pass  # Si falla la extracción, continuar sin métricas
                 
                 # Actualizar datos en sesión si hay cliente seleccionado
                 if st.session_state.cliente_seleccionado_gestion:
                     nit_cliente = st.session_state.cliente_seleccionado_gestion['nit_cliente']
                     st.session_state.historial_gestiones = db.obtener_gestiones_cliente(nit_cliente)
                 
-                # Mostrar resumen de importación
-                if "gestiones importadas" in message.lower():
-                    partes = message.split(":")
-                    if len(partes) > 0:
-                        st.balloons()
-                
-                # Cerrar diálogo después de éxito
-                st.session_state.mostrar_importar = False
-                st.rerun()
+                # Botón para cerrar el diálogo después de revisar resultados
+                st.markdown("---")
+                if st.button("🗙 Cerrar y Volver a Gestión", type="primary", use_container_width=True):
+                    st.session_state.mostrar_importar = False
+                    st.rerun()
                 
             else:
-                st.error(f"❌ {message}")
+                st.error("### ❌ ERROR EN IMPORTACIÓN")
+                
+                # Mostrar errores con formato mejorado
+                lineas = message.split('\n')
+                for linea in lineas:
+                    if linea.startswith('❌') or "Columnas requeridas" in linea:
+                        st.error(linea)
+                    elif linea.startswith('•'):
+                        st.warning(linea)
+                    elif linea.strip():
+                        st.info(linea)
+                
                 # Mantener el diálogo abierto para que corrija errores
+                st.warning("💡 Corrige los errores en el archivo y vuelve a intentar la importación")
                 
     except Exception as e:
         st.error(f"❌ Error crítico en la importación: {str(e)}")
