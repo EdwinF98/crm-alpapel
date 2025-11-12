@@ -956,28 +956,65 @@ class DatabaseManager:
         return self.obtener_gestiones_por_periodo(fecha_inicio, fecha_fin)
 
     def importar_gestiones_excel(self, file_path):
-        """Importa gestiones desde archivo Excel"""
+        """Importa gestiones desde archivo Excel con validaciones robustas"""
         try:
+            # Leer archivo Excel
             df = pd.read_excel(file_path)
             
-            # Verificar columnas requeridas
-            required_columns = ['nit_cliente', 'razon_social_cliente', 'fecha_contacto', 'tipo_contacto', 'resultado']
-            missing_columns = [col for col in required_columns if col not in df.columns]
+            # Validar estructura básica del archivo
+            columnas_requeridas = ['nit_cliente', 'razon_social_cliente', 'fecha_contacto', 'tipo_contacto', 'resultado']
+            columnas_faltantes = [col for col in columnas_requeridas if col not in df.columns]
             
-            if missing_columns:
-                return False, f"Columnas requeridas faltantes: {', '.join(missing_columns)}"
+            if columnas_faltantes:
+                return False, f"Columnas requeridas faltantes: {', '.join(columnas_faltantes)}"
+            
+            # Validar datos específicos
+            errores_validacion = self.validar_datos_gestiones_importacion(df)
+            if errores_validacion:
+                mensaje_errores = "\n".join(errores_validacion[:5])  # Mostrar máximo 5 errores
+                return False, f"Errores de validación:\n{mensaje_errores}"
             
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             
             gestiones_importadas = 0
+            gestiones_con_errores = 0
+            errores_detallados = []
+            
             for index, row in df.iterrows():
                 try:
+                    # Validar NIT existe en base de datos
+                    nit_valido = self.validar_nit_existente(str(row['nit_cliente']))
+                    if not nit_valido:
+                        gestiones_con_errores += 1
+                        errores_detallados.append(f"Fila {index + 2}: NIT {row['nit_cliente']} no existe en BD")
+                        continue
+                    
                     # Convertir fechas
                     fecha_contacto = self.convertir_fecha(row['fecha_contacto'])
+                    if not fecha_contacto:
+                        gestiones_con_errores += 1
+                        errores_detallados.append(f"Fila {index + 2}: Fecha contacto inválida")
+                        continue
+                    
                     promesa_fecha = self.convertir_fecha(row.get('promesa_pago_fecha', None))
                     proxima_gestion = self.convertir_fecha(row.get('proxima_gestion', None))
                     
+                    # Validar tipo de contacto
+                    tipo_contacto_valido = self.validar_tipo_contacto(str(row['tipo_contacto']))
+                    if not tipo_contacto_valido:
+                        gestiones_con_errores += 1
+                        errores_detallados.append(f"Fila {index + 2}: Tipo contacto '{row['tipo_contacto']}' inválido")
+                        continue
+                    
+                    # Validar resultado
+                    resultado_valido = self.validar_resultado_gestion(str(row['resultado']))
+                    if not resultado_valido:
+                        gestiones_con_errores += 1
+                        errores_detallados.append(f"Fila {index + 2}: Resultado '{row['resultado']}' inválido")
+                        continue
+                    
+                    # Insertar gestión
                     cursor.execute('''
                         INSERT INTO gestiones 
                         (nit_cliente, razon_social_cliente, tipo_contacto, resultado, fecha_contacto, usuario,
@@ -992,20 +1029,110 @@ class DatabaseManager:
                         str(row.get('usuario', 'importado_excel')),
                         str(row.get('observaciones', '')),
                         promesa_fecha,
-                        float(row.get('promesa_pago_monto', 0)) if pd.notna(row.get('promesa_pago_monto')) else None,
+                        float(row.get('promesa_pago_monto', 0)) if pd.notna(row.get('promesa_pago_monto')) and row.get('promesa_pago_monto', 0) > 0 else None,
                         proxima_gestion
                     ))
                     gestiones_importadas += 1
+                    
                 except Exception as e:
-                    print(f"Error importando fila {index}: {e}")
+                    gestiones_con_errores += 1
+                    errores_detallados.append(f"Fila {index + 2}: Error interno - {str(e)}")
                     continue
             
             conn.commit()
             conn.close()
-            return True, f"Gestiones importadas: {gestiones_importadas}"
+            
+            # Preparar mensaje de resultado
+            mensaje_resultado = f"Importación completada: {gestiones_importadas} gestiones importadas"
+            if gestiones_con_errores > 0:
+                mensaje_resultado += f", {gestiones_con_errores} con errores"
+            
+            if errores_detallados:
+                mensaje_resultado += f"\n\nErrores detectados:\n" + "\n".join(errores_detallados[:3])
+            
+            return gestiones_importadas > 0, mensaje_resultado
             
         except Exception as e:
             return False, f"Error al importar Excel: {str(e)}"
+
+    def validar_datos_gestiones_importacion(self, df):
+        """Valida los datos del DataFrame de importación"""
+        errores = []
+        
+        # Validar NITs no nulos
+        if df['nit_cliente'].isnull().any():
+            errores.append("❌ Hay NITs vacíos en el archivo")
+        
+        # Validar fechas de contacto
+        for index, fecha in df['fecha_contacto'].items():
+            if pd.isna(fecha):
+                errores.append(f"Fila {index + 2}: Fecha contacto vacía")
+                continue
+            
+            fecha_convertida = self.convertir_fecha(fecha)
+            if not fecha_convertida:
+                errores.append(f"Fila {index + 2}: Formato fecha contacto inválido")
+        
+        # Validar tipos de contacto
+        tipos_validos = ['Llamada telefónica', 'WhatsApp', 'Correo electrónico', 
+                        'Visita presencial', 'Videollamada', 'Mensaje de texto']
+        tipos_invalidos = df[~df['tipo_contacto'].isin(tipos_validos)]['tipo_contacto'].unique()
+        if len(tipos_invalidos) > 0:
+            errores.append(f"Tipos de contacto inválidos: {', '.join(tipos_invalidos)}")
+        
+        return errores
+
+    def validar_nit_existente(self, nit):
+        """Valida que un NIT exista en la base de datos"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT COUNT(*) FROM clientes WHERE nit_cliente = ?', (str(nit),))
+        resultado = cursor.fetchone()[0]
+        
+        conn.close()
+        return resultado > 0
+
+    def validar_tipo_contacto(self, tipo_contacto):
+        """Valida que el tipo de contacto sea válido"""
+        tipos_validos = ['Llamada telefónica', 'WhatsApp', 'Correo electrónico', 
+                        'Visita presencial', 'Videollamada', 'Mensaje de texto']
+        return tipo_contacto in tipos_validos
+
+    def validar_resultado_gestion(self, resultado):
+        """Valida que el resultado de gestión sea válido"""
+        # Verificar si es un resultado numérico (1-21) o texto completo
+        import re
+        if re.match(r'^\d+\.', resultado):
+            # Es formato numérico, verificar que esté entre 1-21
+            numero = int(resultado.split('.')[0])
+            return 1 <= numero <= 21
+        else:
+            # Es texto completo, verificar que esté en la lista
+            resultados_validos = [
+                'Promesa de Pago Total (Fecha/Monto)',
+                'Promesa de Pago Parcial (Fecha/Monto)',
+                'Acuerdo de Pago Formalizado (Cuotas)',
+                'Pago Efectuado / Cobro Exitoso',
+                'Contacto Exitoso (Titular)',
+                'Contacto con Tercero (Informó/Transmitió mensaje)',
+                'Dejó Mensaje / Correo de Voz',
+                'No Contesta / Ocupado',
+                'Número Erróneo / Inexistente',
+                'Email/Mensaje Enviado',
+                'Disputa / Reclamo de Facturación',
+                'Problema de Servicio (Pendiente de Resolver)',
+                'Negativa de Pago (Dificultad temporal)',
+                'Negativa de Pago (Rechazo definitivo)',
+                'Quiebra / Insolvencia Confirmada',
+                'Cliente Inactivo / Ilocalizable',
+                'Necesita Escalación (A Legal/Supervisión)',
+                'Enviar Documentación Solicitada (Factura/Extracto)',
+                'Agendar Nueva Llamada / Cita',
+                'Datos Verificados / Actualizados',
+                'Gestión No Finalizada (Reintentar pronto)'
+            ]
+            return resultado in resultados_validos
     
     def obtener_metricas_principales(self):
         """Obtiene métricas principales del dashboard - VERSIÓN SIMPLIFICADA Y SEGURA"""

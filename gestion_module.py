@@ -4,6 +4,8 @@ import pandas as pd
 from datetime import datetime
 import io
 import tempfile
+from config import config
+from datetime import datetime, timedelta
 import os
 
 def gestion_section():
@@ -594,24 +596,42 @@ def preparar_dataframe_exportacion(gestiones_df):
     return df_export
 
 def mostrar_dialogo_importacion():
-    """Muestra el diálogo de importación de gestiones"""
+    """Muestra el diálogo de importación con formato guía descargable"""
     
     st.markdown("---")
     st.subheader("📥 Importar Gestiones desde Excel")
     
+    # SECCIÓN: DESCARGAR FORMATO GUÍA
+    st.markdown("#### 📋 Formato Guía de Importación")
     st.info("""
-    **📋 Formato requerido para importar:**
-    - El archivo debe ser Excel (.xlsx)
-    - Debe contener las columnas: NIT Cliente, Razón Social, Fecha Contacto, Tipo Contacto, Resultado
-    - Las fechas deben estar en formato YYYY-MM-DD
-    - El NIT Cliente debe existir en la base de datos
+    **Para importar gestiones correctamente:**
+    - Descarga el formato guía con la estructura requerida
+    - Completa los datos siguiendo las especificaciones
+    - Sube el archivo completado para importar
     """)
     
-    # Subir archivo
+    # Botón para descargar formato guía
+    if st.button("⬇️ Descargar Formato Guía de Importación", 
+                use_container_width=True, 
+                type="secondary",
+                key="descargar_formato_gestiones"):
+        
+        formato_excel = generar_formato_guia_importacion()
+        if formato_excel:
+            st.success("✅ Formato guía generado correctamente")
+        else:
+            st.error("❌ Error generando formato guía")
+    
+    st.markdown("---")
+    
+    # SECCIÓN: SUBIR ARCHIVO PARA IMPORTAR
+    st.markdown("#### 📤 Subir Archivo para Importar")
+    
     archivo_subido = st.file_uploader(
-        "Selecciona archivo Excel de gestiones",
+        "Selecciona archivo Excel de gestiones completado",
         type=['xlsx'],
-        key="upload_gestiones_excel"
+        key="upload_gestiones_excel_mejorado",
+        help="El archivo debe seguir el formato guía descargado"
     )
     
     if archivo_subido is not None:
@@ -631,38 +651,190 @@ def mostrar_dialogo_importacion():
             st.dataframe(df_preview, use_container_width=True)
             
             # Verificar columnas requeridas
-            columnas_requeridas = ['NIT Cliente', 'Razón Social', 'Fecha Contacto', 'Tipo Contacto', 'Resultado']
+            columnas_requeridas = ['nit_cliente', 'razon_social_cliente', 'fecha_contacto', 'tipo_contacto', 'resultado']
             columnas_faltantes = [col for col in columnas_requeridas if col not in df_preview.columns]
             
             if columnas_faltantes:
                 st.error(f"❌ Columnas requeridas faltantes: {', '.join(columnas_faltantes)}")
+                st.warning("💡 Descarga el formato guía para obtener la estructura correcta")
             else:
-                st.success("✅ El archivo tiene el formato correcto")
+                st.success("✅ El archivo tiene la estructura básica correcta")
                 
                 # Botón de importación
-                if st.button("🚀 Iniciar Importación", type="primary", use_container_width=True):
-                    importar_gestiones_desde_archivo(archivo_subido)
-                    
+                col_importar, col_cancelar = st.columns(2)
+                
+                with col_importar:
+                    if st.button("🚀 Iniciar Importación", 
+                                type="primary", 
+                                use_container_width=True,
+                                key="iniciar_importacion_gestiones"):
+                        importar_gestiones_desde_archivo(archivo_subido)
+                
+                with col_cancelar:
+                    if st.button("❌ Cancelar", 
+                                use_container_width=True,
+                                key="cancelar_importacion_gestiones"):
+                        st.session_state.mostrar_importar = False
+                        st.rerun()
+                        
         except Exception as e:
             st.error(f"❌ Error al leer el archivo: {str(e)}")
+            st.warning("💡 Asegúrate de que el archivo no esté corrupto y sea un Excel válido")
     
-    # Botón de cancelar
-    if st.button("❌ Cancelar Importación", use_container_width=True):
+    # Botón de cancelar general
+    if st.button("🗙 Cerrar Diálogo de Importación", 
+                use_container_width=True,
+                key="cerrar_dialogo_importacion"):
         st.session_state.mostrar_importar = False
         st.rerun()
 
+def generar_formato_guia_importacion():
+    """Genera y descarga el formato guía para importar gestiones"""
+    try:
+        from config import config
+        import io
+        
+        # Crear DataFrames para cada hoja
+        with st.spinner("🔄 Generando formato guía..."):
+            
+            # HOJA 1: FORMATO DE IMPORTACIÓN
+            formato_df = pd.DataFrame(columns=config.GESTIONES_COLUMNAS.keys())
+            
+            # Agregar fila de ejemplo
+            ejemplo = {
+                'nit_cliente': '9001234567',
+                'razon_social_cliente': 'EMPRESA EJEMPLO SAS',
+                'fecha_contacto': datetime.now().strftime('%Y-%m-%d'),
+                'tipo_contacto': 'Llamada telefónica',
+                'resultado': '1. Promesa de Pago Total (Fecha/Monto)',
+                'observaciones': 'Cliente comprometió pago total para fecha acordada',
+                'promesa_pago_fecha': (datetime.now() + timedelta(days=7)).strftime('%Y-%m-%d'),
+                'promesa_pago_monto': 1500000,
+                'proxima_gestion': (datetime.now() + timedelta(days=15)).strftime('%Y-%m-%d'),
+                'usuario': 'usuario@empresa.com'
+            }
+            formato_df = formato_df._append(ejemplo, ignore_index=True)
+            
+            # HOJA 2: GUÍA DE CAMPOS
+            guia_campos = []
+            for columna, especificaciones in config.GESTIONES_COLUMNAS.items():
+                guia_campos.append({
+                    'Campo': columna,
+                    'Nombre para Mostrar': especificaciones['nombre'],
+                    'Tipo de Dato': especificaciones['tipo'],
+                    'Obligatorio': 'Sí' if especificaciones['obligatorio'] else 'No',
+                    'Descripción': obtener_descripcion_campo(columna),
+                    'Formato/Ejemplo': obtener_formato_ejemplo(columna)
+                })
+            guia_df = pd.DataFrame(guia_campos)
+            
+            # HOJA 3: CATÁLOGO DE OPCIONES
+            catalogo_data = []
+            
+            # Tipos de contacto
+            for tipo in config.CATALOGOS_GESTIONES['tipos_contacto']:
+                catalogo_data.append({
+                    'Campo': 'tipo_contacto',
+                    'Valor Válido': tipo,
+                    'Descripción': 'Medio utilizado para el contacto con el cliente'
+                })
+            
+            # Resultados
+            for resultado in config.CATALOGOS_GESTIONES['resultados']:
+                catalogo_data.append({
+                    'Campo': 'resultado',
+                    'Valor Válido': resultado,
+                    'Descripción': 'Resultado obtenido de la gestión realizada'
+                })
+            
+            catalogo_df = pd.DataFrame(catalogo_data)
+            
+            # Crear archivo Excel en memoria
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                # Hoja 1: Formato de importación
+                formato_df.to_excel(writer, sheet_name='Formato Importación', index=False)
+                
+                # Hoja 2: Guía de campos
+                guia_df.to_excel(writer, sheet_name='Guía de Campos', index=False)
+                
+                # Hoja 3: Catálogo de opciones
+                catalogo_df.to_excel(writer, sheet_name='Catálogo Opciones', index=False)
+                
+                # Hoja 4: Instrucciones
+                instrucciones_df = pd.DataFrame({
+                    'Paso': ['1', '2', '3', '4', '5'],
+                    'Instrucción': [
+                        'Descarga este formato guía',
+                        'Completa los datos en la hoja "Formato Importación"',
+                        'Consulta las hojas "Guía de Campos" y "Catálogo Opciones" para referencia',
+                        'Guarda el archivo Excel completado',
+                        'Sube el archivo en el módulo de gestión para importar'
+                    ]
+                })
+                instrucciones_df.to_excel(writer, sheet_name='Instrucciones', index=False)
+            
+            output.seek(0)
+            
+            # Botón de descarga
+            st.download_button(
+                label="💾 Descargar Formato Guía Completo",
+                data=output.getvalue(),
+                file_name=f"formato_importacion_gestiones_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+            
+            return True
+            
+    except Exception as e:
+        st.error(f"❌ Error generando formato guía: {str(e)}")
+        return False
+
+def obtener_descripcion_campo(campo):
+    """Retorna la descripción de cada campo para la guía"""
+    descripciones = {
+        'nit_cliente': 'Número de identificación tributaria del cliente. Debe existir en la base de datos.',
+        'razon_social_cliente': 'Nombre legal completo de la empresa cliente.',
+        'fecha_contacto': 'Fecha en que se realizó la gestión con el cliente.',
+        'tipo_contacto': 'Medio o método utilizado para contactar al cliente.',
+        'resultado': 'Resultado específico obtenido de la gestión realizada.',
+        'observaciones': 'Comentarios, acuerdos o detalles adicionales de la gestión.',
+        'promesa_pago_fecha': 'Fecha acordada para el pago prometido por el cliente.',
+        'promesa_pago_monto': 'Valor monetario del pago prometido por el cliente.',
+        'proxima_gestion': 'Fecha sugerida para el siguiente contacto o seguimiento.',
+        'usuario': 'Email del usuario que realiza la gestión (opcional, se autocompleta).'
+    }
+    return descripciones.get(campo, 'Campo de información')
+
+def obtener_formato_ejemplo(campo):
+    """Retorna el formato y ejemplo para cada campo"""
+    formatos = {
+        'nit_cliente': 'Ejemplo: 9001234567',
+        'razon_social_cliente': 'Ejemplo: EMPRESA EJEMPLO SAS',
+        'fecha_contacto': 'Formato: YYYY-MM-DD. Ejemplo: 2024-01-15',
+        'tipo_contacto': 'Usar valores del catálogo: Llamada telefónica, WhatsApp, etc.',
+        'resultado': 'Usar códigos del 1-21 o texto completo. Ejemplo: 1. Promesa de Pago Total...',
+        'observaciones': 'Texto libre. Ejemplo: Cliente confirmó pago para fecha acordada',
+        'promesa_pago_fecha': 'Formato: YYYY-MM-DD. Ejemplo: 2024-01-22',
+        'promesa_pago_monto': 'Solo números. Ejemplo: 1500000',
+        'proxima_gestion': 'Formato: YYYY-MM-DD. Ejemplo: 2024-02-01',
+        'usuario': 'Email válido. Ejemplo: usuario@empresa.com'
+    }
+    return formatos.get(campo, 'Consultar guía de campos')
+
 def importar_gestiones_desde_archivo(archivo_subido):
-    """Importa gestiones desde un archivo Excel"""
+    """Importa gestiones desde un archivo Excel con validaciones mejoradas"""
     
     try:
-        with st.spinner("📥 Importando gestiones..."):
+        with st.spinner("📥 Validando y importando gestiones..."):
             
             # Guardar archivo temporalmente
             with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
                 tmp_file.write(archivo_subido.getvalue())
                 tmp_path = tmp_file.name
             
-            # Importar usando DatabaseManager
+            # Importar usando DatabaseManager con validaciones mejoradas
             db = st.session_state.db
             success, message = db.importar_gestiones_excel(tmp_path)
             
@@ -672,20 +844,28 @@ def importar_gestiones_desde_archivo(archivo_subido):
             if success:
                 st.success(f"✅ {message}")
                 
-                # Actualizar historial si hay un cliente seleccionado
+                # Actualizar datos en sesión si hay cliente seleccionado
                 if st.session_state.cliente_seleccionado_gestion:
                     nit_cliente = st.session_state.cliente_seleccionado_gestion['nit_cliente']
                     st.session_state.historial_gestiones = db.obtener_gestiones_cliente(nit_cliente)
-                    st.rerun()
+                
+                # Mostrar resumen de importación
+                if "gestiones importadas" in message.lower():
+                    partes = message.split(":")
+                    if len(partes) > 0:
+                        st.balloons()
                 
                 # Cerrar diálogo después de éxito
                 st.session_state.mostrar_importar = False
+                st.rerun()
                 
             else:
                 st.error(f"❌ {message}")
+                # Mantener el diálogo abierto para que corrija errores
                 
     except Exception as e:
-        st.error(f"❌ Error en la importación: {str(e)}")
+        st.error(f"❌ Error crítico en la importación: {str(e)}")
+        st.info("💡 Verifica que el archivo no esté corrupto y tenga el formato correcto")
 
 def cargar_todos_los_clientes():
     """Carga TODOS los clientes disponibles - VERSIÓN ROBUSTA"""

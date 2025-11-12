@@ -982,7 +982,7 @@ def mostrar_panel_cliente_detallado():
         st.info("📝 No hay gestiones registradas para este cliente")
     
     # ====================
-    # SECCIÓN 5: ACCIONES RÁPIDAS - VERSIÓN MEJORADA
+    # SECCIÓN 5: ACCIONES RÁPIDAS
     # ====================
     st.markdown("---")
     st.subheader("🚀 Acciones Rápidas")
@@ -991,9 +991,9 @@ def mostrar_panel_cliente_detallado():
     
     with col_acc1:
         if st.button("💬 WhatsApp Cliente", use_container_width=True, key="btn_whatsapp_cliente"):
-            # ============================================================
+
             # ✅ MEJORA: VALIDACIÓN ROBUSTA DE AMBOS CAMPOS (CELULAR Y TELÉFONO)
-            # ============================================================
+
             numero_whatsapp = None
             celular = cliente.get('celular')
             telefono = cliente.get('telefono')

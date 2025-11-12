@@ -51,6 +51,54 @@ class Config:
         'csv': '.csv'
     }
     
+        # Estándares para importación/exportación de gestiones
+    GESTIONES_COLUMNAS = {
+        'nit_cliente': {'nombre': 'NIT Cliente', 'obligatorio': True, 'tipo': 'texto'},
+        'razon_social_cliente': {'nombre': 'Razón Social', 'obligatorio': True, 'tipo': 'texto'},
+        'fecha_contacto': {'nombre': 'Fecha Contacto', 'obligatorio': True, 'tipo': 'fecha'},
+        'tipo_contacto': {'nombre': 'Tipo Contacto', 'obligatorio': True, 'tipo': 'catalogo'},
+        'resultado': {'nombre': 'Resultado', 'obligatorio': True, 'tipo': 'catalogo'},
+        'observaciones': {'nombre': 'Observaciones', 'obligatorio': False, 'tipo': 'texto_largo'},
+        'promesa_pago_fecha': {'nombre': 'Promesa Pago Fecha', 'obligatorio': False, 'tipo': 'fecha'},
+        'promesa_pago_monto': {'nombre': 'Promesa Pago Monto', 'obligatorio': False, 'tipo': 'numero'},
+        'proxima_gestion': {'nombre': 'Próxima Gestión', 'obligatorio': False, 'tipo': 'fecha'},
+        'usuario': {'nombre': 'Usuario', 'obligatorio': False, 'tipo': 'texto'}
+    }
+    
+    CATALOGOS_GESTIONES = {
+        'tipos_contacto': [
+            'Llamada telefónica',
+            'WhatsApp', 
+            'Correo electrónico',
+            'Visita presencial',
+            'Videollamada',
+            'Mensaje de texto'
+        ],
+        'resultados': [
+            '1. Promesa de Pago Total (Fecha/Monto)',
+            '2. Promesa de Pago Parcial (Fecha/Monto)',
+            '3. Acuerdo de Pago Formalizado (Cuotas)',
+            '4. Pago Efectuado / Cobro Exitoso',
+            '5. Contacto Exitoso (Titular)',
+            '6. Contacto con Tercero (Informó/Transmitió mensaje)',
+            '7. Dejó Mensaje / Correo de Voz',
+            '8. No Contesta / Ocupado',
+            '9. Número Erróneo / Inexistente',
+            '10. Email/Mensaje Enviado',
+            '11. Disputa / Reclamo de Facturación',
+            '12. Problema de Servicio (Pendiente de Resolver)',
+            '13. Negativa de Pago (Dificultad temporal)',
+            '14. Negativa de Pago (Rechazo definitivo)',
+            '15. Quiebra / Insolvencia Confirmada',
+            '16. Cliente Inactivo / Ilocalizable',
+            '17. Necesita Escalación (A Legal/Supervisión)',
+            '18. Enviar Documentación Solicitada (Factura/Extracto)',
+            '19. Agendar Nueva Llamada / Cita',
+            '20. Datos Verificados / Actualizados',
+            '21. Gestión No Finalizada (Reintentar pronto)'
+        ]
+    }
+
     # Límites del sistema
     MAX_FILE_SIZE_MB = 50
     MAX_RECORDS_PER_PAGE = 1000
