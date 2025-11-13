@@ -22,39 +22,6 @@ from user_manager import UserManager
 from auth import AuthManager
 from config import config
 
-def debug_database_location():
-    """DEBUG: Verificar dónde está realmente la base de datos"""
-    import os
-    from config import config
-    
-    db_path = config.get_database_path()
-    print(f"🔍 DEBUG - Ruta de BD según config: {db_path}")
-    print(f"🔍 DEBUG - ¿Existe el archivo?: {os.path.exists(db_path)}")
-    
-    if os.path.exists(db_path):
-        size_kb = os.path.getsize(db_path) / 1024
-        mod_time = datetime.fromtimestamp(os.path.getmtime(db_path))
-        print(f"🔍 DEBUG - Tamaño: {size_kb:.1f} KB")
-        print(f"🔍 DEBUG - Última modificación: {mod_time}")
-    
-    # Buscar archivos .db en todo el directorio
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    db_files = []
-    for root, dirs, files in os.walk(base_dir):
-        for file in files:
-            if file.endswith('.db'):
-                full_path = os.path.join(root, file)
-                size = os.path.getsize(full_path) / 1024
-                mod_time = datetime.fromtimestamp(os.path.getmtime(full_path))
-                db_files.append((full_path, size, mod_time))
-    
-    print(f"🔍 DEBUG - Archivos .db encontrados:")
-    for path, size, mod_time in db_files:
-        print(f"   📁 {path} - {size:.1f} KB - {mod_time}")
-
-# Llamar la función debug al inicio
-debug_database_location()
-
 def set_custom_page_config():
     """Configuración personalizada de la página sin logos"""
     try:
