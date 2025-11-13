@@ -287,40 +287,52 @@ class UserManager:
 
     # Agregar estos métodos a la clase UserManager en user_manager.py
 
-    def crear_usuario(self, email, nombre_completo, rol, vendedor_asignado=None, activo=True):
-        """Crea un nuevo usuario en el sistema"""
-        try:
-            if not self.is_valid_email(email):
-                return False, "Email debe ser del dominio @alpapel.com"
-            
-            # Verificar si el usuario ya existe
-            conn = self.get_connection()
-            cursor = conn.cursor()
-            cursor.execute('SELECT id FROM usuarios WHERE email = ?', (email,))
-            if cursor.fetchone():
-                conn.close()
-                return False, "Ya existe un usuario con este email"
-            
-            # Generar contraseña temporal
-            import random
-            import string
-            password_temporal = "Temp" + ''.join(random.choices(string.digits, k=4)) + "!"
-            
-            password_hash = self.hash_password(password_temporal)
-            
-            cursor.execute('''
-                INSERT INTO usuarios 
-                (email, password_hash, nombre_completo, rol, vendedor_asignado, activo, email_verificado)
-                VALUES (?, ?, ?, ?, ?, ?, 1)
-            ''', (email, password_hash, nombre_completo, rol, vendedor_asignado, 1 if activo else 0))
-            
-            conn.commit()
+def crear_usuario(self, email, nombre_completo, rol, vendedor_asignado=None, activo=True):
+    """Crea un nuevo usuario en el sistema"""
+    try:
+        if not self.is_valid_email(email):
+            return False, "Email debe ser del dominio @alpapel.com"
+        
+        # Verificar si el usuario ya existe
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT id FROM usuarios WHERE email = ?', (email,))
+        if cursor.fetchone():
             conn.close()
-            
-            return True, f"Usuario creado exitosamente. Contraseña temporal: {password_temporal}"
-            
-        except Exception as e:
-            return False, f"Error creando usuario: {str(e)}"
+            return False, "Ya existe un usuario con este email"
+        
+        # Generar contraseña temporal que cumpla con los requisitos
+        import random
+        import string
+        
+        # Contraseña que cumple: Mayúscula + minúscula + números + especial
+        letras_mayus = random.choice(string.ascii_uppercase)
+        letras_minus = random.choice(string.ascii_lowercase)
+        numeros = ''.join(random.choices(string.digits, k=4))
+        caracter_especial = random.choice('!@#$%^&*')
+        
+        # Ensamblar contraseña
+        partes = [letras_mayus, letras_minus, numeros, caracter_especial]
+        random.shuffle(partes)
+        password_temporal = ''.join(partes)
+        
+        print(f"🔐 CONTRASEÑA GENERADA PARA {email}: {password_temporal}")  # DEBUG
+        
+        password_hash = self.hash_password(password_temporal)
+        
+        cursor.execute('''
+            INSERT INTO usuarios 
+            (email, password_hash, nombre_completo, rol, vendedor_asignado, activo, email_verificado)
+            VALUES (?, ?, ?, ?, ?, ?, 1)
+        ''', (email, password_hash, nombre_completo, rol, vendedor_asignado, 1 if activo else 0))
+        
+        conn.commit()
+        conn.close()
+        
+        return True, f"Usuario creado exitosamente. Contraseña temporal: {password_temporal}"
+        
+    except Exception as e:
+        return False, f"Error creando usuario: {str(e)}"
 
     def eliminar_usuario(self, user_id):
         """Elimina un usuario del sistema"""
