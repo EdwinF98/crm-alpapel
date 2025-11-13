@@ -285,7 +285,7 @@ class UserManager:
             print(f"Error obteniendo vendedores: {e}")
             return pd.DataFrame()
 
-    # Agregar estos métodos a la clase UserManager en user_manager.py
+    # === MÉTODOS QUE DEBEN ESTAR DENTRO DE LA CLASE ===
 
     def crear_usuario(self, email, nombre_completo, rol, vendedor_asignado=None, activo=True):
         """Crea un nuevo usuario en el sistema"""
@@ -408,11 +408,3 @@ class UserManager:
                 'logins_hoy': 0,
                 'sesiones_activas': 1
             }
-    # === MÉTODO DE VERIFICACIÓN ===
-    def verificar_metodos(self):
-        """Verifica que todos los métodos estén disponibles"""
-        return {
-            'crear_usuario': hasattr(self, 'crear_usuario'),
-            'eliminar_usuario': hasattr(self, 'eliminar_usuario'),
-            'obtener_estadisticas_sistema': hasattr(self, 'obtener_estadisticas_sistema')
-        }
