@@ -312,11 +312,13 @@ class UserManager:
             conn.close()
 
     def crear_usuario(self, email, nombre_completo, rol, vendedor_asignado=None, activo=True):
-        """Crea un nuevo usuario en el sistema - VERSIÓN CON PERSISTENCIA GARANTIZADA"""
+        """Crea un nuevo usuario en el sistema - VERSIÓN CON DEBUG"""
         conn = self.get_connection()
         cursor = conn.cursor()
         
         try:
+            print(f"🔍 DEBUG - Creando usuario: {email}")
+            
             if not self.is_valid_email(email):
                 return False, "Email debe ser del dominio @alpapel.com"
             
@@ -325,24 +327,24 @@ class UserManager:
             if cursor.fetchone():
                 return False, "Ya existe un usuario con este email"
             
-            # Generar contraseña temporal que cumpla con los requisitos
+            # Generar contraseña temporal
             import random
             import string
             
-            # Contraseña que cumple: Mayúscula + minúscula + números + especial
             letras_mayus = random.choice(string.ascii_uppercase)
             letras_minus = random.choice(string.ascii_lowercase)
             numeros = ''.join(random.choices(string.digits, k=4))
             caracter_especial = random.choice('!@#$%^&*')
             
-            # Ensamblar contraseña
             partes = [letras_mayus, letras_minus, numeros, caracter_especial]
             random.shuffle(partes)
             password_temporal = ''.join(partes)
             
-            print(f"🔐 CONTRASEÑA GENERADA PARA {email}: {password_temporal}")
+            print(f"🔐 DEBUG - Contraseña generada: {password_temporal}")
             
+            # GENERAR HASH DE LA CONTRASEÑA
             password_hash = self.hash_password(password_temporal)
+            print(f"🔐 DEBUG - Hash generado: {password_hash}")
             
             # INSERTAR USUARIO
             cursor.execute('''
@@ -351,14 +353,15 @@ class UserManager:
                 VALUES (?, ?, ?, ?, ?, ?, 1)
             ''', (email, password_hash, nombre_completo, rol, vendedor_asignado, 1 if activo else 0))
             
-            # COMMIT CRÍTICO - asegurar que el usuario se guarde en la base de datos física
+            # COMMIT CRÍTICO
             conn.commit()
+            print(f"✅ DEBUG - Usuario {email} creado exitosamente")
             
             return True, f"Usuario creado exitosamente. Contraseña temporal: {password_temporal}"
             
         except Exception as e:
-            # ROLLBACK en caso de error
             conn.rollback()
+            print(f"❌ DEBUG - Error creando usuario: {str(e)}")
             return False, f"Error creando usuario: {str(e)}"
         finally:
             conn.close()
