@@ -971,8 +971,8 @@ def crear_grafica_evolucion_proyeccion(datos):
         st.info("💡 Si el error persiste, verifica que los datos de cartera tengan fechas de vencimiento válidas")
 
 def crear_grafica_concentracion_cartera(datos):
-    """Gráfica 6: Concentración de Cartera - Principio 20/80"""
-    st.subheader("📊 Concentración de Cartera - Principio 20/80")
+    """Gráfica 6: Concentración de Cartera - Principio 80/20"""
+    st.subheader("📊 Concentración de Cartera - Principio 80/20")
     
     if datos.empty:
         st.info("No hay datos para mostrar")
