@@ -5,30 +5,22 @@ from datetime import datetime
 from config import config
 
 def admin_section():
-    """Sección principal de administración"""
-    st.header("🛡️ Administración del Sistema")
+    # ... código existente ...
     
-    # Verificar permisos
-    if not st.session_state.auth_manager.has_permission('manage_users'):
-        st.error("❌ No tienes permisos para acceder a esta sección")
-        return
-    
-    # Inicializar estados de sesión
-    if 'mostrar_crear_usuario' not in st.session_state:
-        st.session_state.mostrar_crear_usuario = False
-    if 'usuario_editar' not in st.session_state:
-        st.session_state.usuario_editar = None
-    if 'mostrar_editar_usuario' not in st.session_state:
-        st.session_state.mostrar_editar_usuario = False
-    
-    # Tabs de administración - SOLO GESTIÓN DE USUARIOS TEMPORALMENTE
-    tab1, tab2 = st.tabs(["👥 Gestión de Usuarios", "⚙️ Configuración"])
-    
-    with tab1:
-        gestion_usuarios_section()
-    
-    with tab2:
-        configuracion_section()
+    # En la parte donde se crea el usuario, agrega:
+    if st.button("Crear Usuario", type="primary"):
+        print(f"🔍 DEBUG - Intentando crear usuario: {email}")
+        
+        success, message = st.session_state.user_manager.crear_usuario(
+            email, nombre_completo, rol, vendedor, activo
+        )
+        
+        print(f"🔍 DEBUG - Resultado creación: {success} - {message}")
+        
+        if success:
+            st.success(message)
+        else:
+            st.error(message)
 
 def gestion_usuarios_section():
     """Sección de gestión de usuarios"""
