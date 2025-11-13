@@ -424,7 +424,36 @@ def main_app():
         
         st.session_state.section = selected_section
         
-        # Información de sesión
+        # ============================================================
+        # 🆕 VERIFICACIÓN DE PERSISTENCIA - AGREGADO COMPLETO
+        # ============================================================
+        
+        st.markdown("---")
+        st.markdown("**🔧 Herramientas de Diagnóstico**")
+        
+        # Solo mostrar para administradores
+        if st.session_state.user and st.session_state.user['rol'] == 'admin':
+            if st.button("🔍 Verificar Persistencia BD", use_container_width=True, key="btn_verificar_persistencia"):
+                with st.spinner("Verificando persistencia de base de datos..."):
+                    resultado = st.session_state.db.verificar_persistencia()
+                
+                if resultado.get('exito'):
+                    if resultado.get('persistencia_ok'):
+                        st.success("✅ ✅ PERSISTENCIA FUNCIONANDO CORRECTAMENTE")
+                        st.balloons()
+                    else:
+                        st.error("❌ ❌ PERSISTENCIA FALLANDO - Los datos no se guardan")
+                else:
+                    st.error(f"❌ Error en verificación: {resultado.get('error', 'Desconocido')}")
+                
+                # Mostrar detalles expandibles
+                with st.expander("📊 Detalles completos de la verificación"):
+                    st.json(resultado)
+        
+        # ============================================================
+        # INFORMACIÓN DE SESIÓN (tu código existente)
+        # ============================================================
+        
         st.markdown("---")
         st.markdown("**💼 Información de Sesión**")
         tiempo_restante = st.session_state.auth_manager.get_session_time_remaining()

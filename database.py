@@ -27,6 +27,31 @@ class DatabaseManager:
         """Obtiene la ruta completa de la base de datos"""
         base_dir = os.path.dirname(os.path.abspath(__file__))
         return os.path.join(base_dir, "cartera_crm.db")
+    
+    def ejecutar_con_persistencia(self, query, params=None, operacion="operacion"):
+        """Ejecuta una consulta con garantía de persistencia"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            if params:
+                cursor.execute(query, params)
+            else:
+                cursor.execute(query)
+            
+            # COMMIT INMEDIATO Y OBLIGATORIO
+            conn.commit()
+            print(f"✅ PERSISTENCIA: {operacion} ejecutada correctamente")
+            return True
+            
+        except Exception as e:
+            # ROLLBACK en caso de error
+            conn.rollback()
+            print(f"❌ PERSISTENCIA: Error en {operacion}: {str(e)}")
+            return False
+        finally:
+            # CERRAR CONEXIÓN SIEMPRE
+            conn.close()
 
     # ============================================================
     # 🆕 MÉTODOS DE USER_MANAGER INTEGRADOS
@@ -187,19 +212,20 @@ class DatabaseManager:
             conn.close()
 
     def crear_usuario(self, email, nombre_completo, rol, vendedor_asignado=None, activo=True):
-        """Crea un nuevo usuario en el sistema - VERSIÓN CENTRALIZADA"""
+        """Crea un nuevo usuario con PERSISTENCIA GARANTIZADA"""
+        print(f"🔍 DEBUG - Iniciando creación de usuario: {email}")
+        
+        if not self.is_valid_email(email):
+            return False, "Email debe ser del dominio @alpapel.com"
+        
+        # Verificar si el usuario ya existe
         conn = self.get_connection()
         cursor = conn.cursor()
         
         try:
-            print(f"🔍 DEBUG - Creando usuario: {email}")
-            
-            if not self.is_valid_email(email):
-                return False, "Email debe ser del dominio @alpapel.com"
-            
-            # Verificar si el usuario ya existe
             cursor.execute('SELECT id FROM usuarios WHERE email = ?', (email,))
             if cursor.fetchone():
+                conn.close()
                 return False, "Ya existe un usuario con este email"
             
             # Generar contraseña temporal
@@ -217,9 +243,8 @@ class DatabaseManager:
             
             print(f"🔐 DEBUG - Contraseña generada: {password_temporal}")
             
-            # GENERAR HASH DE LA CONTRASEÑA
+            # GENERAR HASH
             password_hash = self.hash_password(password_temporal)
-            print(f"🔐 DEBUG - Hash generado: {password_hash}")
             
             # INSERTAR USUARIO
             cursor.execute('''
@@ -228,19 +253,20 @@ class DatabaseManager:
                 VALUES (?, ?, ?, ?, ?, ?, 1)
             ''', (email, password_hash, nombre_completo, rol, vendedor_asignado, 1 if activo else 0))
             
-            # COMMIT CRÍTICO
+            # ✅ COMMIT CRÍTICO Y EXPLÍCITO
             conn.commit()
-            print(f"✅ DEBUG - Usuario {email} creado exitosamente")
+            print(f"✅ DEBUG - Usuario {email} CREADO Y PERSISTIDO en BD")
             
             return True, f"Usuario creado exitosamente. Contraseña temporal: {password_temporal}"
             
         except Exception as e:
+            # ✅ ROLLBACK EXPLÍCITO en error
             conn.rollback()
             print(f"❌ DEBUG - Error creando usuario: {str(e)}")
             return False, f"Error creando usuario: {str(e)}"
         finally:
+            # ✅ CERRAR CONEXIÓN SIEMPRE
             conn.close()
-
     def obtener_usuarios(self):
         """Obtiene todos los usuarios del sistema - VERSIÓN CENTRALIZADA"""
         conn = self.get_connection()
@@ -995,7 +1021,7 @@ class DatabaseManager:
             return False, f"Error general: {str(e)}"
 
     def registrar_gestion(self, gestion_data):
-        """Registra una nueva gestión con información del usuario - VERSIÓN CON PERSISTENCIA"""
+        """Registra una nueva gestión con PERSISTENCIA GARANTIZADA"""
         conn = self.get_connection()
         cursor = conn.cursor()
         
@@ -1013,16 +1039,18 @@ class DatabaseManager:
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', gestion_data)
             
-            # COMMIT INMEDIATO para asegurar que la gestión se guarde
+            # ✅ COMMIT INMEDIATO Y OBLIGATORIO
             conn.commit()
+            print(f"✅ GESTIÓN REGISTRADA Y PERSISTIDA: {gestion_data[0]} - {gestion_data[2]}")
             return True
             
         except Exception as e:
-            # ROLLBACK en caso de error
+            # ✅ ROLLBACK en caso de error
             conn.rollback()
             print(f"❌ Error registrando gestión: {e}")
             return False
         finally:
+            # ✅ CERRAR CONEXIÓN SIEMPRE
             conn.close()
 
     def obtener_gestiones_cliente(self, nit_cliente):
