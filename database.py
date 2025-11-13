@@ -7,6 +7,7 @@ import traceback
 class DatabaseManager:
     def __init__(self):
         self.db_path = self.get_database_path()
+        print(f"🔍 Ruta de base de datos: {self.db_path}")  # DEBUG
         self.init_database()
         self.current_user = None
     
@@ -196,7 +197,10 @@ class DatabaseManager:
         return inicio.strftime('%Y-%m-%d'), fin.strftime('%Y-%m-%d')
     
     def cargar_excel_cartera(self, file_path):
-        """Carga datos del Excel de cartera a la base de datos"""
+        """Carga datos del Excel de cartera a la base de datos - VERSIÓN CON PERSISTENCIA"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
         try:
             df = pd.read_excel(file_path)
             
@@ -241,14 +245,11 @@ class DatabaseManager:
             if 'fecha_vencimiento' in df.columns:
                 df['fecha_vencimiento'] = df['fecha_vencimiento'].apply(self.convertir_fecha)
             
-            conn = sqlite3.connect(self.db_path)
-            
             # 1. Insertar vendedores
             if 'nombre_vendedor' in df.columns:
                 vendedores_unicos = df['nombre_vendedor'].dropna().unique()
                 for vendedor in vendedores_unicos:
                     if vendedor and str(vendedor).strip() != '':
-                        cursor = conn.cursor()
                         cursor.execute('''
                             INSERT OR IGNORE INTO vendedores (nombre_vendedor)
                             VALUES (?)
@@ -257,11 +258,10 @@ class DatabaseManager:
             # 2. Insertar clientes
             for _, row in df.iterrows():
                 if 'nit_cliente' in df.columns and pd.notna(row['nit_cliente']):
-                    cursor = conn.cursor()
                     cursor.execute('''
                         INSERT OR REPLACE INTO clientes 
                         (nit_cliente, razon_social, telefono, celular, direccion, 
-                         email, ciudad, vendedor_asignado)
+                        email, ciudad, vendedor_asignado)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     ''', (
                         str(row['nit_cliente']),
@@ -282,8 +282,8 @@ class DatabaseManager:
                     cursor.execute('''
                         INSERT INTO cartera_actual 
                         (nit_cliente, razon_social_cliente, nombre_vendedor, centro_operacion,
-                         nro_factura, total_cop, fecha_emision, fecha_vencimiento,
-                         condicion_pago, dias_vencidos, dias_gracia)
+                        nro_factura, total_cop, fecha_emision, fecha_vencimiento,
+                        condicion_pago, dias_vencidos, dias_gracia)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ''', (
                         str(row['nit_cliente']),
@@ -303,18 +303,22 @@ class DatabaseManager:
             cursor.execute('''
                 INSERT INTO historial_cartera 
                 (nit_cliente, nro_factura, total_cop, fecha_emision,
-                 fecha_vencimiento, condicion_pago, dias_vencidos, fecha_registro)
+                fecha_vencimiento, condicion_pago, dias_vencidos, fecha_registro)
                 SELECT nit_cliente, nro_factura, total_cop, fecha_emision,
-                       fecha_vencimiento, condicion_pago, dias_vencidos, CURRENT_DATE
+                    fecha_vencimiento, condicion_pago, dias_vencidos, CURRENT_DATE
                 FROM cartera_actual
             ''')
             
+            # COMMIT CRÍTICO - asegurar que toda la carga se persista
             conn.commit()
-            conn.close()
             return True, f"Cartera cargada exitosamente. {len(df)} registros procesados."
             
         except Exception as e:
+            # ROLLBACK en caso de error
+            conn.rollback()
             return False, f"Error al cargar Excel: {str(e)}"
+        finally:
+            conn.close()
     
     def obtener_cartera_actual(self):
         """Obtiene la cartera actual - VERSIÓN CORREGIDA"""
@@ -568,26 +572,35 @@ class DatabaseManager:
             return False, f"Error general: {str(e)}"
 
     def registrar_gestion(self, gestion_data):
-        """Registra una nueva gestión con información del usuario"""
+        """Registra una nueva gestión con información del usuario - VERSIÓN CON PERSISTENCIA"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
-        user = self.current_user
-        if user:
-            gestion_data_list = list(gestion_data)
-            gestion_data_list[5] = user['email']  # usuario
-            gestion_data = tuple(gestion_data_list)
-        
-        cursor.execute('''
-            INSERT INTO gestiones 
-            (nit_cliente, razon_social_cliente, tipo_contacto, resultado, fecha_contacto, usuario,
-            observaciones, promesa_pago_fecha, promesa_pago_monto, proxima_gestion)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', gestion_data)
-        
-        conn.commit()
-        conn.close()
-        return True
+        try:
+            user = self.current_user
+            if user:
+                gestion_data_list = list(gestion_data)
+                gestion_data_list[5] = user['email']  # usuario
+                gestion_data = tuple(gestion_data_list)
+            
+            cursor.execute('''
+                INSERT INTO gestiones 
+                (nit_cliente, razon_social_cliente, tipo_contacto, resultado, fecha_contacto, usuario,
+                observaciones, promesa_pago_fecha, promesa_pago_monto, proxima_gestion)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', gestion_data)
+            
+            # COMMIT INMEDIATO para asegurar que la gestión se guarde
+            conn.commit()
+            return True
+            
+        except Exception as e:
+            # ROLLBACK en caso de error
+            conn.rollback()
+            print(f"❌ Error registrando gestión: {e}")
+            return False
+        finally:
+            conn.close()
     
     def obtener_gestiones_cliente(self, nit_cliente):
         """Obtiene el historial de gestiones de un cliente"""
@@ -956,7 +969,10 @@ class DatabaseManager:
         return self.obtener_gestiones_por_periodo(fecha_inicio, fecha_fin)
 
     def importar_gestiones_excel(self, file_path):
-        """Importa gestiones desde archivo Excel con validaciones robustas y estadísticas detalladas"""
+        """Importa gestiones desde archivo Excel con PERSISTENCIA GARANTIZADA"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
         try:
             # Leer archivo Excel
             df = pd.read_excel(file_path)
@@ -972,11 +988,8 @@ class DatabaseManager:
             # Validar datos específicos
             errores_validacion = self.validar_datos_gestiones_importacion(df)
             if errores_validacion:
-                mensaje_errores = "\n".join(errores_validacion[:5])  # Mostrar máximo 5 errores
+                mensaje_errores = "\n".join(errores_validacion[:5])
                 return False, f"Errores de validación:\n{mensaje_errores}"
-            
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
             
             gestiones_importadas = 0
             gestiones_con_errores = 0
@@ -1053,10 +1066,10 @@ class DatabaseManager:
                     errores_detallados.append(f"Fila {index + 2}: Error interno - {str(e)}")
                     continue
             
+            # COMMIT CRÍTICO - asegurar que todas las gestiones importadas se guarden
             conn.commit()
-            conn.close()
             
-            # Preparar mensaje de resultado CON ESTADÍSTICAS DETALLADAS
+            # Preparar mensaje de resultado
             if gestiones_importadas > 0:
                 mensaje_resultado = f"✅ IMPORTACIÓN COMPLETADA EXITOSAMENTE\n\n"
                 mensaje_resultado += f"📊 RESUMEN DE IMPORTACIÓN:\n"
@@ -1069,7 +1082,7 @@ class DatabaseManager:
                 
                 if gestiones_con_errores > 0:
                     mensaje_resultado += f"\n⚠️ ERRORES DETECTADOS ({min(len(errores_detallados), 5)} de {len(errores_detallados)}):\n"
-                    for error in errores_detallados[:5]:  # Mostrar máximo 5 errores
+                    for error in errores_detallados[:5]:
                         mensaje_resultado += f"• {error}\n"
                     
                     if len(errores_detallados) > 5:
@@ -1077,13 +1090,17 @@ class DatabaseManager:
             else:
                 mensaje_resultado = f"❌ IMPORTACIÓN FALLIDA\n\n"
                 mensaje_resultado += f"No se pudieron importar gestiones. Errores encontrados:\n"
-                for error in errores_detallados[:10]:  # Mostrar máximo 10 errores
+                for error in errores_detallados[:10]:
                     mensaje_resultado += f"• {error}\n"
             
             return gestiones_importadas > 0, mensaje_resultado
             
         except Exception as e:
+            # ROLLBACK en caso de error general
+            conn.rollback()
             return False, f"Error al importar Excel: {str(e)}"
+        finally:
+            conn.close()
 
     def validar_datos_gestiones_importacion(self, df):
         """Valida los datos del DataFrame de importación"""
@@ -1474,7 +1491,7 @@ class DatabaseManager:
     # ============================================================
 
     def cargar_historial_completo(self, ruta_base="CARTERA DIARIA"):
-        """Carga todos los archivos Excel históricos usando solo columnas básicas"""
+        """Carga todos los archivos Excel históricos - VERSIÓN CON PERSISTENCIA"""
         try:
             import os
             import glob
@@ -1492,7 +1509,6 @@ class DatabaseManager:
             for año_dir in os.listdir(ruta_base):
                 ruta_año = os.path.join(ruta_base, año_dir)
                 
-                # Verificar que es un directorio de año (2025, 2026, etc.)
                 if not os.path.isdir(ruta_año) or not año_dir.isdigit():
                     continue
                     
@@ -1514,7 +1530,6 @@ class DatabaseManager:
                         try:
                             # Extraer fecha del nombre del archivo
                             nombre_archivo = os.path.basename(archivo_path)
-                            # Formato: "CARTERA 01-10.xlsx" → día=01, mes=10
                             partes = nombre_archivo.replace('CARTERA ', '').replace('.xlsx', '').split('-')
                             if len(partes) == 2:
                                 dia = int(partes[0])
@@ -1552,23 +1567,19 @@ class DatabaseManager:
             return False, f"Error en carga masiva: {str(e)}"
 
     def cargar_excel_historial(self, file_path, fecha_carga):
-        """Carga un archivo Excel al historial diario usando solo las primeras 10 columnas"""
+        """Carga un archivo Excel al historial diario - VERSIÓN CON PERSISTENCIA"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
         try:
-            # Leer SOLO las primeras 10 columnas (por posición, sin importar nombres)
+            # Leer SOLO las primeras 10 columnas
             df = pd.read_excel(file_path, usecols=range(10))
             
-            # Asignar nombres estándar a las columnas (las primeras 10 siempre en el mismo orden)
+            # Asignar nombres estándar
             nombres_columnas = [
-                'nombre_vendedor',      # Columna 0: Razón social vend. cliente
-                'nit_cliente',          # Columna 1: Cliente
-                'razon_social_cliente', # Columna 2: Razón social sucursal
-                'centro_operacion',     # Columna 3: C.O.
-                'nro_factura',          # Columna 4: Nro. docto. cruce
-                'total_cop',            # Columna 5: Total COP
-                'fecha_emision',        # Columna 6: Fecha docto cruce
-                'fecha_vencimiento',    # Columna 7: Fecha vcto.
-                'condicion_pago',       # Columna 8: Cond. pago cliente
-                'dias_vencidos'         # Columna 9: Dias vencidos
+                'nombre_vendedor', 'nit_cliente', 'razon_social_cliente', 'centro_operacion', 
+                'nro_factura', 'total_cop', 'fecha_emision', 'fecha_vencimiento', 
+                'condicion_pago', 'dias_vencidos'
             ]
             
             # Renombrar las columnas
@@ -1583,9 +1594,6 @@ class DatabaseManager:
             # Convertir fechas
             df['fecha_emision'] = df['fecha_emision'].apply(self.convertir_fecha)
             df['fecha_vencimiento'] = df['fecha_vencimiento'].apply(self.convertir_fecha)
-            
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
             
             # Insertar en historial_cartera_diario
             registros_insertados = 0
@@ -1616,13 +1624,16 @@ class DatabaseManager:
                         print(f"⚠️ Error insertando registro: {e}")
                         continue
             
+            # COMMIT CRÍTICO - asegurar que el historial se guarde
             conn.commit()
-            conn.close()
-            
             return True, f"{registros_insertados} registros cargados"
             
         except Exception as e:
+            # ROLLBACK en caso de error
+            conn.rollback()
             return False, f"Error cargando archivo {os.path.basename(file_path)}: {str(e)}"
+        finally:
+            conn.close()
 
     def verificar_historial_cargado(self):
         """Verifica cuántos registros hay en el historial"""
@@ -1682,14 +1693,12 @@ class DatabaseManager:
             return {'detalle': pd.DataFrame(), 'resumen': {}}
         
     def cargar_historial_incremental(self, ruta_base="CARTERA DIARIA"):
-        """Carga solo los archivos que no están en el historial"""
+        """Carga solo los archivos que no están en el historial - VERSIÓN CON PERSISTENCIA"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
         try:
-            import glob
-            from datetime import datetime
-            
             # Obtener fechas ya cargadas
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
             cursor.execute('SELECT DISTINCT fecha_carga FROM historial_cartera_diario ORDER BY fecha_carga')
             fechas_cargadas = [row[0] for row in cursor.fetchall()]
             conn.close()
@@ -1745,7 +1754,7 @@ class DatabaseManager:
                                 if success:
                                     archivos_nuevos += 1
                                     resultados.append(f"✅ {fecha_str}: {message}")
-                                    fechas_cargadas.append(fecha_str)  # Agregar a la lista local
+                                    fechas_cargadas.append(fecha_str)
                                 else:
                                     errores += 1
                                     resultados.append(f"❌ {fecha_str}: {message}")
@@ -1765,4 +1774,5 @@ class DatabaseManager:
             return archivos_nuevos > 0, mensaje_final
             
         except Exception as e:
+            conn.close()
             return False, f"Error en carga incremental: {str(e)}"

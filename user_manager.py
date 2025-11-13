@@ -20,52 +20,61 @@ class UserManager:
         conn = self.get_connection()
         cursor = conn.cursor()
         
-        # Tabla de usuarios
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS usuarios (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                email TEXT UNIQUE NOT NULL,
-                password_hash TEXT NOT NULL,
-                nombre_completo TEXT NOT NULL,
-                rol TEXT NOT NULL DEFAULT 'comercial',
-                vendedor_asignado TEXT,
-                activo INTEGER DEFAULT 1,
-                email_verificado INTEGER DEFAULT 0,
-                fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP,
-                ultimo_login DATETIME,
-                intentos_login INTEGER DEFAULT 0,
-                bloqueado_hasta DATETIME,
-                reset_token TEXT,
-                reset_token_expira DATETIME
-            )
-        ''')
-        
-        # Tabla de auditoría de login
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS auditoria_login (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                usuario_id INTEGER,
-                email TEXT,
-                fecha_login DATETIME DEFAULT CURRENT_TIMESTAMP,
-                ip_address TEXT,
-                user_agent TEXT,
-                exito INTEGER DEFAULT 0,
-                FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
-            )
-        ''')
-        
-        # Crear usuario admin por defecto si no existe
-        cursor.execute('SELECT COUNT(*) FROM usuarios WHERE email = "cartera@alpapel.com"')
-        if cursor.fetchone()[0] == 0:
-            default_password = self.hash_password("12345678")
+        try:
+            # Tabla de usuarios
             cursor.execute('''
-                INSERT INTO usuarios (email, password_hash, nombre_completo, rol, email_verificado, activo)
-                VALUES (?, ?, ?, ?, 1, 1)
-            ''', ('cartera@alpapel.com', default_password, 'Administrador Principal', 'admin'))
-            print("✅ Usuario admin creado: cartera@alpapel.com / 12345678")
-        
-        conn.commit()
-        conn.close()
+                CREATE TABLE IF NOT EXISTS usuarios (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    email TEXT UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    nombre_completo TEXT NOT NULL,
+                    rol TEXT NOT NULL DEFAULT 'comercial',
+                    vendedor_asignado TEXT,
+                    activo INTEGER DEFAULT 1,
+                    email_verificado INTEGER DEFAULT 0,
+                    fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    ultimo_login DATETIME,
+                    intentos_login INTEGER DEFAULT 0,
+                    bloqueado_hasta DATETIME,
+                    reset_token TEXT,
+                    reset_token_expira DATETIME
+                )
+            ''')
+            
+            # Tabla de auditoría de login
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS auditoria_login (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    usuario_id INTEGER,
+                    email TEXT,
+                    fecha_login DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    ip_address TEXT,
+                    user_agent TEXT,
+                    exito INTEGER DEFAULT 0,
+                    FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
+                )
+            ''')
+            
+            # Crear usuario admin por defecto si no existe
+            cursor.execute('SELECT COUNT(*) FROM usuarios WHERE email = "cartera@alpapel.com"')
+            if cursor.fetchone()[0] == 0:
+                default_password = self.hash_password("12345678")
+                cursor.execute('''
+                    INSERT INTO usuarios (email, password_hash, nombre_completo, rol, email_verificado, activo)
+                    VALUES (?, ?, ?, ?, 1, 1)
+                ''', ('cartera@alpapel.com', default_password, 'Administrador Principal', 'admin'))
+                print("✅ Usuario admin creado: cartera@alpapel.com / 12345678")
+            
+            # COMMIT CRÍTICO - asegurar que las tablas se creen
+            conn.commit()
+            print("✅ Tablas de usuarios inicializadas correctamente")
+            
+        except Exception as e:
+            print(f"❌ Error inicializando tablas de usuarios: {e}")
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
     
     def hash_password(self, password):
         """Encripta la contraseña usando SHA-256 con salt"""
@@ -106,10 +115,10 @@ class UserManager:
     
     def autenticar_usuario(self, email, password, ip_address="", user_agent=""):
         """Autentica un usuario y registra el intento de login"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
         try:
-            conn = self.get_connection()
-            cursor = conn.cursor()
-            
             # Verificar si el usuario está bloqueado
             cursor.execute('''
                 SELECT id, bloqueado_hasta FROM usuarios 
@@ -119,14 +128,12 @@ class UserManager:
             result = cursor.fetchone()
             if not result:
                 self.registrar_intento_login(None, email, ip_address, user_agent, False)
-                conn.close()
                 return False, "Usuario no encontrado o inactivo", None
             
             user_id, bloqueado_hasta = result
             
             if bloqueado_hasta and datetime.strptime(bloqueado_hasta, '%Y-%m-%d %H:%M:%S') > datetime.now():
                 self.registrar_intento_login(user_id, email, ip_address, user_agent, False)
-                conn.close()
                 return False, "Cuenta temporalmente bloqueada por múltiples intentos fallidos", None
             
             # Obtener datos del usuario
@@ -138,7 +145,6 @@ class UserManager:
             result = cursor.fetchone()
             if not result:
                 self.registrar_intento_login(user_id, email, ip_address, user_agent, False)
-                conn.close()
                 return False, "Error en la autenticación", None
             
             user_id, password_hash, nombre_completo, rol, vendedor_asignado, intentos_login = result
@@ -153,6 +159,9 @@ class UserManager:
                     WHERE id = ?
                 ''', (user_id,))
                 
+                # COMMIT INMEDIATO para login exitoso
+                conn.commit()
+                
                 # Registrar login exitoso
                 self.registrar_intento_login(user_id, email, ip_address, user_agent, True)
                 
@@ -164,8 +173,6 @@ class UserManager:
                     'vendedor_asignado': vendedor_asignado
                 }
                 
-                conn.commit()
-                conn.close()
                 return True, "Login exitoso", user_data
             else:
                 # Login fallido - incrementar intentos
@@ -181,10 +188,10 @@ class UserManager:
                     WHERE id = ?
                 ''', (nuevos_intentos, bloqueado_hasta, user_id))
                 
-                self.registrar_intento_login(user_id, email, ip_address, user_agent, False)
-                
+                # COMMIT INMEDIATO para actualización de intentos
                 conn.commit()
-                conn.close()
+                
+                self.registrar_intento_login(user_id, email, ip_address, user_agent, False)
                 
                 intentos_restantes = config.MAX_LOGIN_ATTEMPTS - nuevos_intentos
                 if intentos_restantes > 0:
@@ -193,30 +200,38 @@ class UserManager:
                     return False, f"Cuenta bloqueada por {config.LOCKOUT_TIME_MINUTES} minutos debido a múltiples intentos fallidos", None
                 
         except Exception as e:
+            # ROLLBACK en caso de error
+            conn.rollback()
             return False, f"Error en autenticación: {str(e)}", None
+        finally:
+            conn.close()
     
     def registrar_intento_login(self, user_id, email, ip_address, user_agent, exito):
-        """Registra un intento de login - VERSIÓN SILENCIOSA"""
+        """Registra un intento de login - VERSIÓN CON PERSISTENCIA"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
         try:
-            conn = self.get_connection()
-            cursor = conn.cursor()
-            
             cursor.execute('''
                 INSERT INTO auditoria_login (usuario_id, email, ip_address, user_agent, exito)
                 VALUES (?, ?, ?, ?, ?)
             ''', (user_id, email, ip_address, user_agent, 1 if exito else 0))
             
+            # COMMIT para asegurar que el intento de login se guarde
             conn.commit()
-            conn.close()
             
-        except Exception:
-            # ✅ SILENCIOSO - no imprimir nada en consola
-            pass  # Ignorar completamente el error
+        except Exception as e:
+            # ROLLBACK en caso de error, pero no interrumpir el flujo principal
+            conn.rollback()
+            print(f"⚠️ Error registrando intento de login: {e}")
+        finally:
+            conn.close()
     
     def obtener_usuarios(self):
         """Obtiene todos los usuarios del sistema"""
+        conn = self.get_connection()
+        
         try:
-            conn = self.get_connection()
             query = '''
                 SELECT id, email, nombre_completo, rol, vendedor_asignado, activo, 
                        fecha_creacion, ultimo_login, email_verificado
@@ -224,18 +239,19 @@ class UserManager:
                 ORDER BY nombre_completo
             '''
             df = pd.read_sql_query(query, conn)
-            conn.close()
             return df
         except Exception as e:
             print(f"Error obteniendo usuarios: {e}")
             return pd.DataFrame()
+        finally:
+            conn.close()
     
     def actualizar_usuario(self, user_id, datos):
         """Actualiza los datos de un usuario"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
         try:
-            conn = self.get_connection()
-            cursor = conn.cursor()
-            
             cursor.execute('''
                 UPDATE usuarios 
                 SET nombre_completo = ?, rol = ?, vendedor_asignado = ?, activo = ?
@@ -243,14 +259,21 @@ class UserManager:
             ''', (datos['nombre_completo'], datos['rol'], datos['vendedor_asignado'], 
                   datos['activo'], user_id))
             
+            # COMMIT INMEDIATO para actualización
             conn.commit()
-            conn.close()
             return True, "Usuario actualizado exitosamente"
         except Exception as e:
+            # ROLLBACK en caso de error
+            conn.rollback()
             return False, f"Error actualizando usuario: {str(e)}"
+        finally:
+            conn.close()
     
     def cambiar_password(self, user_id, nueva_password):
         """Cambia la contraseña de un usuario"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
         try:
             is_valid, message = self.is_strong_password(nueva_password)
             if not is_valid:
@@ -258,47 +281,48 @@ class UserManager:
             
             password_hash = self.hash_password(nueva_password)
             
-            conn = self.get_connection()
-            cursor = conn.cursor()
-            
             cursor.execute('''
                 UPDATE usuarios 
                 SET password_hash = ?, intentos_login = 0, bloqueado_hasta = NULL
                 WHERE id = ?
             ''', (password_hash, user_id))
             
+            # COMMIT INMEDIATO para cambio de contraseña
             conn.commit()
-            conn.close()
             return True, "Contraseña cambiada exitosamente"
         except Exception as e:
+            # ROLLBACK en caso de error
+            conn.rollback()
             return False, f"Error cambiando contraseña: {str(e)}"
+        finally:
+            conn.close()
     
     def obtener_vendedores(self):
         """Obtiene todos los vendedores de la base de datos"""
+        conn = self.get_connection()
+        
         try:
-            conn = self.get_connection()
             query = 'SELECT nombre_vendedor FROM vendedores ORDER BY nombre_vendedor'
             df = pd.read_sql_query(query, conn)
-            conn.close()
             return df
         except Exception as e:
             print(f"Error obteniendo vendedores: {e}")
             return pd.DataFrame()
-
-    # === MÉTODOS QUE DEBEN ESTAR DENTRO DE LA CLASE ===
+        finally:
+            conn.close()
 
     def crear_usuario(self, email, nombre_completo, rol, vendedor_asignado=None, activo=True):
-        """Crea un nuevo usuario en el sistema"""
+        """Crea un nuevo usuario en el sistema - VERSIÓN CON PERSISTENCIA GARANTIZADA"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
         try:
             if not self.is_valid_email(email):
                 return False, "Email debe ser del dominio @alpapel.com"
             
             # Verificar si el usuario ya existe
-            conn = self.get_connection()
-            cursor = conn.cursor()
             cursor.execute('SELECT id FROM usuarios WHERE email = ?', (email,))
             if cursor.fetchone():
-                conn.close()
                 return False, "Ya existe un usuario con este email"
             
             # Generar contraseña temporal que cumpla con los requisitos
@@ -316,30 +340,35 @@ class UserManager:
             random.shuffle(partes)
             password_temporal = ''.join(partes)
             
-            print(f"🔐 CONTRASEÑA GENERADA PARA {email}: {password_temporal}")  # DEBUG
+            print(f"🔐 CONTRASEÑA GENERADA PARA {email}: {password_temporal}")
             
             password_hash = self.hash_password(password_temporal)
             
+            # INSERTAR USUARIO
             cursor.execute('''
                 INSERT INTO usuarios 
                 (email, password_hash, nombre_completo, rol, vendedor_asignado, activo, email_verificado)
                 VALUES (?, ?, ?, ?, ?, ?, 1)
             ''', (email, password_hash, nombre_completo, rol, vendedor_asignado, 1 if activo else 0))
             
+            # COMMIT CRÍTICO - asegurar que el usuario se guarde en la base de datos física
             conn.commit()
-            conn.close()
             
             return True, f"Usuario creado exitosamente. Contraseña temporal: {password_temporal}"
             
         except Exception as e:
+            # ROLLBACK en caso de error
+            conn.rollback()
             return False, f"Error creando usuario: {str(e)}"
+        finally:
+            conn.close()
 
     def eliminar_usuario(self, user_id):
-        """Elimina un usuario del sistema"""
+        """Elimina un usuario del sistema - VERSIÓN CON PERSISTENCIA"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
         try:
-            conn = self.get_connection()
-            cursor = conn.cursor()
-            
             # No permitir eliminar el último admin
             cursor.execute('SELECT COUNT(*) FROM usuarios WHERE rol = "admin" AND activo = 1')
             admin_count = cursor.fetchone()[0]
@@ -348,24 +377,28 @@ class UserManager:
             user_rol = cursor.fetchone()
             
             if user_rol and user_rol[0] == 'admin' and admin_count <= 1:
-                conn.close()
                 return False, "No se puede eliminar el último administrador activo"
             
             cursor.execute('DELETE FROM usuarios WHERE id = ?', (user_id,))
+            
+            # COMMIT para asegurar la eliminación
             conn.commit()
-            conn.close()
             
             return True, "Usuario eliminado correctamente"
             
         except Exception as e:
+            # ROLLBACK en caso de error
+            conn.rollback()
             return False, f"Error eliminando usuario: {str(e)}"
+        finally:
+            conn.close()
 
     def obtener_estadisticas_sistema(self):
         """Obtiene estadísticas del sistema para el dashboard de admin"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
         try:
-            conn = self.get_connection()
-            cursor = conn.cursor()
-            
             # Total usuarios
             cursor.execute('SELECT COUNT(*) FROM usuarios')
             total_usuarios = cursor.fetchone()[0] or 0
@@ -391,8 +424,6 @@ class UserManager:
             except:
                 sesiones_activas = 1
             
-            conn.close()
-            
             return {
                 'total_usuarios': total_usuarios,
                 'usuarios_activos': usuarios_activos,
@@ -408,3 +439,5 @@ class UserManager:
                 'logins_hoy': 0,
                 'sesiones_activas': 1
             }
+        finally:
+            conn.close()
