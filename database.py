@@ -58,17 +58,20 @@ class DatabaseManager:
     # ============================================================
 
     def hash_password(self, password):
-        """Encripta la contraseña usando SHA-256 con salt"""
-        salt = secrets.token_hex(16)
-        return f"{salt}${hashlib.sha256((salt + password).encode()).hexdigest()}"
+        """Encripta la contraseña - VERSIÓN SIMPLIFICADA PARA PRUEBA"""
+        import hashlib
+        # 🆕 VERSIÓN SIMPLIFICADA para diagnóstico
+        simple_hash = hashlib.sha256(password.encode()).hexdigest()
+        print(f"🔐 DEBUG HASH - Password: '{password}' -> Hash: {simple_hash}")
+        return simple_hash
 
     def verify_password(self, password, password_hash):
-        """Verifica si la contraseña coincide con el hash"""
-        try:
-            salt, hash_value = password_hash.split('$')
-            return hashlib.sha256((salt + password).encode()).hexdigest() == hash_value
-        except:
-            return False
+        """Verifica si la contraseña coincide con el hash - VERSIÓN SIMPLIFICADA"""
+        import hashlib
+        # 🆕 VERSIÓN SIMPLIFICADA para diagnóstico
+        test_hash = hashlib.sha256(password.encode()).hexdigest()
+        print(f"🔐 DEBUG VERIFY - Password: '{password}' -> Test Hash: {test_hash} vs Stored: {password_hash}")
+        return test_hash == password_hash
 
     def is_valid_email(self, email):
         """Valida que el email sea del dominio de Alpapel"""
@@ -218,11 +221,11 @@ class DatabaseManager:
         if not self.is_valid_email(email):
             return False, "Email debe ser del dominio @alpapel.com"
         
-        # Verificar si el usuario ya existe
         conn = self.get_connection()
         cursor = conn.cursor()
         
         try:
+            # Verificar si el usuario ya existe
             cursor.execute('SELECT id FROM usuarios WHERE email = ?', (email,))
             if cursor.fetchone():
                 conn.close()
@@ -243,8 +246,13 @@ class DatabaseManager:
             
             print(f"🔐 DEBUG - Contraseña generada: {password_temporal}")
             
-            # GENERAR HASH
+            # 🆕 DIAGNÓSTICO: Verificar el hash
             password_hash = self.hash_password(password_temporal)
+            print(f"🔐 DEBUG - Hash generado: {password_hash}")
+            
+            # 🆕 DIAGNÓSTICO: Verificar que el hash sea válido
+            hash_valido = self.verify_password(password_temporal, password_hash)
+            print(f"🔐 DEBUG - Hash válido para verificación: {hash_valido}")
             
             # INSERTAR USUARIO
             cursor.execute('''
@@ -257,6 +265,11 @@ class DatabaseManager:
             conn.commit()
             print(f"✅ DEBUG - Usuario {email} CREADO Y PERSISTIDO en BD")
             
+            # 🆕 DIAGNÓSTICO: Verificar que se guardó en BD
+            cursor.execute('SELECT email, password_hash FROM usuarios WHERE email = ?', (email,))
+            usuario_guardado = cursor.fetchone()
+            print(f"🔍 DEBUG - Usuario guardado en BD: {usuario_guardado}")
+            
             return True, f"Usuario creado exitosamente. Contraseña temporal: {password_temporal}"
             
         except Exception as e:
@@ -267,6 +280,7 @@ class DatabaseManager:
         finally:
             # ✅ CERRAR CONEXIÓN SIEMPRE
             conn.close()
+
     def obtener_usuarios(self):
         """Obtiene todos los usuarios del sistema - VERSIÓN CENTRALIZADA"""
         conn = self.get_connection()
