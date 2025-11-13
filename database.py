@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import os
 import traceback
+import glob
 
 class DatabaseManager:
     def __init__(self):
@@ -16,9 +17,15 @@ class DatabaseManager:
         self.current_user = user_data
     
     def get_database_path(self):
-        """Obtiene la ruta de la base de datos en la carpeta de ejecución"""
+        """Obtiene la ruta ABSOLUTA de la base de datos - VERSIÓN DEBUG"""
+        import os
         base_dir = os.path.dirname(os.path.abspath(__file__))
-        return os.path.join(base_dir, "cartera_crm.db")
+        db_path = os.path.join(base_dir, "cartera_crm.db")
+        
+        print(f"🎯 DEBUG - Ruta ABSOLUTA de BD: {db_path}")
+        print(f"🎯 DEBUG - Directorio actual: {os.getcwd()}")
+        
+        return db_path
     
     def init_database(self):
         """Inicializa la base de datos con todas las tablas necesarias"""
