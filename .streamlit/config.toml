@@ -1,23 +1,5 @@
 [server]
-port = 8501
-address = "0.0.0.0"
-maxUploadSize = 200
-enableCORS = false
-enableXsrfProtection = true
+fileWatcherType = "none"
 
-[browser]
-gatherUsageStats = false
-serverAddress = "localhost"
-
-[runner]
-magicEnabled = false
-
-# Optimización de memoria
 [global]
 developmentMode = false
-
-[ui]
-hideSidebarNav = false
-
-[client]
-showSidebarNavigation = true
