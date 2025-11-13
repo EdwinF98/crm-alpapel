@@ -89,7 +89,6 @@ class AuthManager:
     
     def get_available_vendedores(self):
         """Obtiene la lista de vendedores disponibles según el rol del usuario"""
-        # TU MÉTODO EXISTENTE - mantenerlo igual
         if not self.current_user or not self.is_authenticated:
             return []
         
@@ -98,20 +97,18 @@ class AuthManager:
         
         if user_role == 'admin':
             try:
-                vendedores_df = self.user_manager.get_connection().execute(
-                    'SELECT nombre_vendedor FROM vendedores ORDER BY nombre_vendedor'
-                ).fetchall()
-                vendedores = ["Todos los vendedores"] + [v[0] for v in vendedores_df if v[0]]
+                # ✅ CORRECCIÓN: Usar método obtener_vendedores() de DatabaseManager
+                vendedores_df = self.user_manager.obtener_vendedores()  # 🆕 SOLO ESTA LÍNEA CAMBIA
+                vendedores = ["Todos los vendedores"] + vendedores_df['nombre_vendedor'].tolist()
                 return vendedores
             except Exception as e:
                 print(f"Error obteniendo vendedores: {e}")
                 return ["Todos los vendedores", user_vendedor] if user_vendedor else ["Todos los vendedores"]
         elif user_role == 'supervisor':
             try:
-                vendedores_df = self.user_manager.get_connection().execute(
-                    'SELECT nombre_vendedor FROM vendedores ORDER BY nombre_vendedor'
-                ).fetchall()
-                vendedores = ["Todos los vendedores"] + [v[0] for v in vendedores_df if v[0]]
+                # ✅ CORRECCIÓN: Usar método obtener_vendedores() de DatabaseManager
+                vendedores_df = self.user_manager.obtener_vendedores()  # 🆕 SOLO ESTA LÍNEA CAMBIA
+                vendedores = ["Todos los vendedores"] + vendedores_df['nombre_vendedor'].tolist()
                 return vendedores
             except:
                 return ["Todos los vendedores", user_vendedor] if user_vendedor else ["Todos los vendedores"]

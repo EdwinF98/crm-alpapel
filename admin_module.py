@@ -1,4 +1,4 @@
-# admin_module.py - VERSIÓN TEMPORAL SIN ESTADÍSTICAS
+# admin_module.py
 import streamlit as st
 import pandas as pd
 from datetime import datetime

@@ -18,7 +18,6 @@ warnings.filterwarnings('ignore', category=UserWarning)
 
 # Importar tus módulos existentes
 from database import DatabaseManager
-from user_manager import UserManager
 from auth import AuthManager
 from config import config
 
@@ -70,8 +69,8 @@ def init_session_state():
         print("✅ DatabaseManager inicializado")
     
     if 'user_manager' not in st.session_state:
-        st.session_state.user_manager = UserManager(st.session_state.db.db_path)
-        print("✅ UserManager inicializado")
+        st.session_state.user_manager = st.session_state.db
+        print("✅ UserManager configurado (usando DatabaseManager)")
     
     if 'auth_manager' not in st.session_state:
         st.session_state.auth_manager = AuthManager(st.session_state.user_manager)
@@ -177,14 +176,6 @@ def login_section():
     col1, col2, col3 = st.columns([1, 2, 1])
     
     with col2:
-        # Header principal único y compacto SIN LOGOS
-        st.markdown(f"""
-        <div style="text-align: center; margin-bottom: 30px;">
-            <h1 style="margin:0; color:#00B3B0; font-size:28px; font-weight:bold;">🔐 {config.APP_NAME}</h1>
-            <p style="margin:0; color:#e6f7f7; font-size:16px; margin-top:5px;">ALPAPEL SAS</p>
-        </div>
-        """, unsafe_allow_html=True)
-        
         # ✅ FIX: Crear el formulario SIN key dinámico (esto causa problemas)
         with st.form("login_form", clear_on_submit=True):
             st.markdown("### Iniciar Sesión")
@@ -204,7 +195,7 @@ def login_section():
                         with st.spinner("🔐 Autenticando..."):
                             # ✅ REDUCIR tiempo de espera
                             time.sleep(0.5)
-                            success, message, user_data = st.session_state.user_manager.autenticar_usuario(
+                            success, message, user_data = st.session_state.db.autenticar_usuario( 
                                 email, password, "web_app", "Streamlit_CRM"
                             )
                             
