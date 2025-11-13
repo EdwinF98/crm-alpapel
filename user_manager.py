@@ -285,114 +285,114 @@ class UserManager:
             print(f"Error obteniendo vendedores: {e}")
             return pd.DataFrame()
 
-# Agregar estos métodos a la clase UserManager en user_manager.py
+    # Agregar estos métodos a la clase UserManager en user_manager.py
 
-def crear_usuario(self, email, nombre_completo, rol, vendedor_asignado=None, activo=True):
-    """Crea un nuevo usuario en el sistema"""
-    try:
-        if not self.is_valid_email(email):
-            return False, "Email debe ser del dominio @alpapel.com"
-        
-        # Verificar si el usuario ya existe
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute('SELECT id FROM usuarios WHERE email = ?', (email,))
-        if cursor.fetchone():
-            conn.close()
-            return False, "Ya existe un usuario con este email"
-        
-        # Generar contraseña temporal
-        import random
-        import string
-        password_temporal = "Temp" + ''.join(random.choices(string.digits, k=4)) + "!"
-        
-        password_hash = self.hash_password(password_temporal)
-        
-        cursor.execute('''
-            INSERT INTO usuarios 
-            (email, password_hash, nombre_completo, rol, vendedor_asignado, activo, email_verificado)
-            VALUES (?, ?, ?, ?, ?, ?, 1)
-        ''', (email, password_hash, nombre_completo, rol, vendedor_asignado, 1 if activo else 0))
-        
-        conn.commit()
-        conn.close()
-        
-        return True, f"Usuario creado exitosamente. Contraseña temporal: {password_temporal}"
-        
-    except Exception as e:
-        return False, f"Error creando usuario: {str(e)}"
-
-def eliminar_usuario(self, user_id):
-    """Elimina un usuario del sistema"""
-    try:
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        # No permitir eliminar el último admin
-        cursor.execute('SELECT COUNT(*) FROM usuarios WHERE rol = "admin" AND activo = 1')
-        admin_count = cursor.fetchone()[0]
-        
-        cursor.execute('SELECT rol FROM usuarios WHERE id = ?', (user_id,))
-        user_rol = cursor.fetchone()
-        
-        if user_rol and user_rol[0] == 'admin' and admin_count <= 1:
-            conn.close()
-            return False, "No se puede eliminar el último administrador activo"
-        
-        cursor.execute('DELETE FROM usuarios WHERE id = ?', (user_id,))
-        conn.commit()
-        conn.close()
-        
-        return True, "Usuario eliminado correctamente"
-        
-    except Exception as e:
-        return False, f"Error eliminando usuario: {str(e)}"
-
-def obtener_estadisticas_sistema(self):
-    """Obtiene estadísticas del sistema para el dashboard de admin"""
-    try:
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        # Total usuarios
-        cursor.execute('SELECT COUNT(*) FROM usuarios')
-        total_usuarios = cursor.fetchone()[0] or 0
-        
-        # Usuarios activos
-        cursor.execute('SELECT COUNT(*) FROM usuarios WHERE activo = 1')
-        usuarios_activos = cursor.fetchone()[0] or 0
-        
-        # Logins hoy (con manejo de tabla inexistente)
-        logins_hoy = 0
+    def crear_usuario(self, email, nombre_completo, rol, vendedor_asignado=None, activo=True):
+        """Crea un nuevo usuario en el sistema"""
         try:
-            cursor.execute('SELECT COUNT(*) FROM auditoria_login WHERE DATE(fecha_login) = DATE("now") AND exito = 1')
-            logins_hoy = cursor.fetchone()[0] or 0
-        except:
+            if not self.is_valid_email(email):
+                return False, "Email debe ser del dominio @alpapel.com"
+            
+            # Verificar si el usuario ya existe
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute('SELECT id FROM usuarios WHERE email = ?', (email,))
+            if cursor.fetchone():
+                conn.close()
+                return False, "Ya existe un usuario con este email"
+            
+            # Generar contraseña temporal
+            import random
+            import string
+            password_temporal = "Temp" + ''.join(random.choices(string.digits, k=4)) + "!"
+            
+            password_hash = self.hash_password(password_temporal)
+            
+            cursor.execute('''
+                INSERT INTO usuarios 
+                (email, password_hash, nombre_completo, rol, vendedor_asignado, activo, email_verificado)
+                VALUES (?, ?, ?, ?, ?, ?, 1)
+            ''', (email, password_hash, nombre_completo, rol, vendedor_asignado, 1 if activo else 0))
+            
+            conn.commit()
+            conn.close()
+            
+            return True, f"Usuario creado exitosamente. Contraseña temporal: {password_temporal}"
+            
+        except Exception as e:
+            return False, f"Error creando usuario: {str(e)}"
+
+    def eliminar_usuario(self, user_id):
+        """Elimina un usuario del sistema"""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            
+            # No permitir eliminar el último admin
+            cursor.execute('SELECT COUNT(*) FROM usuarios WHERE rol = "admin" AND activo = 1')
+            admin_count = cursor.fetchone()[0]
+            
+            cursor.execute('SELECT rol FROM usuarios WHERE id = ?', (user_id,))
+            user_rol = cursor.fetchone()
+            
+            if user_rol and user_rol[0] == 'admin' and admin_count <= 1:
+                conn.close()
+                return False, "No se puede eliminar el último administrador activo"
+            
+            cursor.execute('DELETE FROM usuarios WHERE id = ?', (user_id,))
+            conn.commit()
+            conn.close()
+            
+            return True, "Usuario eliminado correctamente"
+            
+        except Exception as e:
+            return False, f"Error eliminando usuario: {str(e)}"
+
+    def obtener_estadisticas_sistema(self):
+        """Obtiene estadísticas del sistema para el dashboard de admin"""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            
+            # Total usuarios
+            cursor.execute('SELECT COUNT(*) FROM usuarios')
+            total_usuarios = cursor.fetchone()[0] or 0
+            
+            # Usuarios activos
+            cursor.execute('SELECT COUNT(*) FROM usuarios WHERE activo = 1')
+            usuarios_activos = cursor.fetchone()[0] or 0
+            
+            # Logins hoy (con manejo de tabla inexistente)
             logins_hoy = 0
-        
-        # Sesiones activas (estimado basado en últimos 30 minutos)
-        sesiones_activas = 1
-        try:
-            cursor.execute('SELECT COUNT(DISTINCT usuario_id) FROM auditoria_login WHERE fecha_login > datetime("now", "-30 minutes") AND exito = 1')
-            result = cursor.fetchone()
-            sesiones_activas = result[0] if result and result[0] else 1
-        except:
+            try:
+                cursor.execute('SELECT COUNT(*) FROM auditoria_login WHERE DATE(fecha_login) = DATE("now") AND exito = 1')
+                logins_hoy = cursor.fetchone()[0] or 0
+            except:
+                logins_hoy = 0
+            
+            # Sesiones activas (estimado basado en últimos 30 minutos)
             sesiones_activas = 1
-        
-        conn.close()
-        
-        return {
-            'total_usuarios': total_usuarios,
-            'usuarios_activos': usuarios_activos,
-            'logins_hoy': logins_hoy,
-            'sesiones_activas': sesiones_activas
-        }
-        
-    except Exception as e:
-        print(f"Error obteniendo estadísticas: {e}")
-        return {
-            'total_usuarios': 0,
-            'usuarios_activos': 0,
-            'logins_hoy': 0,
-            'sesiones_activas': 1
-        }
+            try:
+                cursor.execute('SELECT COUNT(DISTINCT usuario_id) FROM auditoria_login WHERE fecha_login > datetime("now", "-30 minutes") AND exito = 1')
+                result = cursor.fetchone()
+                sesiones_activas = result[0] if result and result[0] else 1
+            except:
+                sesiones_activas = 1
+            
+            conn.close()
+            
+            return {
+                'total_usuarios': total_usuarios,
+                'usuarios_activos': usuarios_activos,
+                'logins_hoy': logins_hoy,
+                'sesiones_activas': sesiones_activas
+            }
+            
+        except Exception as e:
+            print(f"Error obteniendo estadísticas: {e}")
+            return {
+                'total_usuarios': 0,
+                'usuarios_activos': 0,
+                'logins_hoy': 0,
+                'sesiones_activas': 1
+            }
