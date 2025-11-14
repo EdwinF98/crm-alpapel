@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import os
 import traceback
+from auth import UserManager
 
 class DatabaseManager:
     def __init__(self):
@@ -1766,3 +1767,78 @@ class DatabaseManager:
             
         except Exception as e:
             return False, f"Error en carga incremental: {str(e)}"
+
+    # ============================================================
+    # MÉTODOS DE USUARIOS - PARA COMPATIBILIDAD CON app.py
+    # ============================================================
+
+    def autenticar_usuario(self, email, password, ip_address="", user_agent=""):
+        """Método de compatibilidad - delega a UserManager"""
+        try:
+            from auth import UserManager  # Import aquí para evitar circular
+            user_manager = UserManager(self.db_path)
+            return user_manager.autenticar_usuario(email, password, ip_address, user_agent)
+        except Exception as e:
+            print(f"❌ Error en autenticar_usuario: {e}")
+            return False, f"Error de autenticación: {str(e)}", None
+
+    def obtener_usuarios(self):
+        """Obtiene todos los usuarios"""
+        try:
+            from auth import UserManager
+            user_manager = UserManager(self.db_path)
+            return user_manager.obtener_usuarios()
+        except Exception as e:
+            print(f"Error obteniendo usuarios: {e}")
+            return pd.DataFrame()
+
+    def crear_usuario(self, email, nombre_completo, rol, vendedor_asignado=None, activo=True):
+        """Crea un nuevo usuario"""
+        try:
+            from auth import UserManager
+            user_manager = UserManager(self.db_path)
+            return user_manager.crear_usuario(email, nombre_completo, rol, vendedor_asignado, activo)
+        except Exception as e:
+            return False, f"Error creando usuario: {str(e)}"
+
+    def actualizar_usuario(self, user_id, datos):
+        """Actualiza un usuario"""
+        try:
+            from auth import UserManager
+            user_manager = UserManager(self.db_path)
+            return user_manager.actualizar_usuario(user_id, datos)
+        except Exception as e:
+            return False, f"Error actualizando usuario: {str(e)}"
+
+    def cambiar_password(self, user_id, nueva_password):
+        """Cambia contraseña de usuario"""
+        try:
+            from auth import UserManager
+            user_manager = UserManager(self.db_path)
+            return user_manager.cambiar_password(user_id, nueva_password)
+        except Exception as e:
+            return False, f"Error cambiando contraseña: {str(e)}"
+
+    def eliminar_usuario(self, user_id):
+        """Elimina un usuario"""
+        try:
+            from auth import UserManager
+            user_manager = UserManager(self.db_path)
+            return user_manager.eliminar_usuario(user_id)
+        except Exception as e:
+            return False, f"Error eliminando usuario: {str(e)}"
+
+    def obtener_estadisticas_sistema(self):
+        """Obtiene estadísticas del sistema"""
+        try:
+            from auth import UserManager
+            user_manager = UserManager(self.db_path)
+            return user_manager.obtener_estadisticas_sistema()
+        except Exception as e:
+            print(f"Error obteniendo estadísticas: {e}")
+            return {
+                'total_usuarios': 0,
+                'usuarios_activos': 0,
+                'logins_hoy': 0,
+                'sesiones_activas': 1
+            }
