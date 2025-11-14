@@ -339,9 +339,10 @@ class UserManager:
             if not self.is_valid_email(email):
                 return False, "Email debe ser del dominio @alpapel.com"
             
-            # Verificar si el usuario ya existe
             conn = self.get_connection()
             cursor = conn.cursor()
+            
+            # Verificar si el usuario ya existe
             cursor.execute('SELECT id FROM usuarios WHERE email = ?', (email,))
             if cursor.fetchone():
                 conn.close()
@@ -351,19 +352,19 @@ class UserManager:
             import random
             import string
             password_temporal = "Temp" + ''.join(random.choices(string.digits, k=4)) + "!"
-            
             password_hash = self.hash_password(password_temporal)
             
+            # Insertar usuario
             cursor.execute('''
                 INSERT INTO usuarios 
                 (email, password_hash, nombre_completo, rol, vendedor_asignado, activo, email_verificado)
                 VALUES (?, ?, ?, ?, ?, ?, 1)
             ''', (email, password_hash, nombre_completo, rol, vendedor_asignado, 1 if activo else 0))
             
-            conn.commit()
+            conn.commit()  # ✅ ESTA LÍNEA ES CLAVE
             conn.close()
             
-            return True, f"Usuario creado exitosamente. Contraseña temporal: {password_temporal}"
+            return True, f"Usuario creado. Contraseña temporal: {password_temporal}"
             
         except Exception as e:
             return False, f"Error creando usuario: {str(e)}"
