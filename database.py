@@ -3,608 +3,132 @@ import pandas as pd
 from datetime import datetime, timedelta
 import os
 import traceback
-import glob
-import hashlib
-import secrets
-import re
 
 class DatabaseManager:
     def __init__(self):
         self.db_path = self.get_database_path()
-        print(f"🔍 Ruta de base de datos: {self.db_path}")
         self.init_database()
         self.current_user = None
-    
-    def get_connection(self):
-        """Obtiene una conexión a la base de datos - ÚNICA FUENTE"""
-        return sqlite3.connect(self.db_path)
     
     def set_current_user(self, user_data):
         """Establece el usuario actual para filtrado"""
         self.current_user = user_data
     
     def get_database_path(self):
-        """Obtiene la ruta completa de la base de datos"""
+        """Obtiene la ruta de la base de datos en la carpeta de ejecución"""
         base_dir = os.path.dirname(os.path.abspath(__file__))
         return os.path.join(base_dir, "cartera_crm.db")
     
-    def ejecutar_con_persistencia(self, query, params=None, operacion="operacion"):
-        """Ejecuta una consulta con garantía de persistencia"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        try:
-            if params:
-                cursor.execute(query, params)
-            else:
-                cursor.execute(query)
-            
-            # COMMIT INMEDIATO Y OBLIGATORIO
-            conn.commit()
-            print(f"✅ PERSISTENCIA: {operacion} ejecutada correctamente")
-            return True
-            
-        except Exception as e:
-            # ROLLBACK en caso de error
-            conn.rollback()
-            print(f"❌ PERSISTENCIA: Error en {operacion}: {str(e)}")
-            return False
-        finally:
-            # CERRAR CONEXIÓN SIEMPRE
-            conn.close()
-
-    # ============================================================
-    # 🆕 MÉTODOS DE USER_MANAGER INTEGRADOS
-    # ============================================================
-
-    def hash_password(self, password):
-        """Encripta la contraseña - VERSIÓN SIMPLIFICADA PARA PRUEBA"""
-        import hashlib
-        # 🆕 VERSIÓN SIMPLIFICADA para diagnóstico
-        simple_hash = hashlib.sha256(password.encode()).hexdigest()
-        print(f"🔐 DEBUG HASH - Password: '{password}' -> Hash: {simple_hash}")
-        return simple_hash
-
-    def verify_password(self, password, password_hash):
-        """Verifica si la contraseña coincide con el hash - VERSIÓN SIMPLIFICADA"""
-        import hashlib
-        # 🆕 VERSIÓN SIMPLIFICADA para diagnóstico
-        test_hash = hashlib.sha256(password.encode()).hexdigest()
-        print(f"🔐 DEBUG VERIFY - Password: '{password}' -> Test Hash: {test_hash} vs Stored: {password_hash}")
-        return test_hash == password_hash
-
-    def is_valid_email(self, email):
-        """Valida que el email sea del dominio de Alpapel"""
-        pattern = r'^[a-zA-Z0-9._%+-]+@alpapel\.com$'
-        return re.match(pattern, email) is not None
-
-    def is_strong_password(self, password):
-        """Valida que la contraseña sea segura"""
-        from config import config
-        
-        if len(password) < config.PASSWORD_MIN_LENGTH:
-            return False, f"La contraseña debe tener al menos {config.PASSWORD_MIN_LENGTH} caracteres"
-        
-        if not any(c.isupper() for c in password):
-            return False, "La contraseña debe tener al menos una mayúscula"
-        
-        if not any(c.islower() for c in password):
-            return False, "La contraseña debe tener al menos una minúscula"
-        
-        if not any(c.isdigit() for c in password):
-            return False, "La contraseña debe tener al menos un número"
-        
-        if not any(c in '!@#$%^&*()_+-=[]{}|;:,.<>?/' for c in password):
-            return False, "La contraseña debe tener al menos un carácter especial"
-        
-        return True, "Contraseña válida"
-
-    def autenticar_usuario(self, email, password, ip_address="", user_agent=""):
-        """Autentica un usuario y registra el intento de login - VERSIÓN CENTRALIZADA"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        try:
-            # Verificar si el usuario está bloqueado
-            cursor.execute('''
-                SELECT id, bloqueado_hasta FROM usuarios 
-                WHERE email = ? AND activo = 1
-            ''', (email,))
-            
-            result = cursor.fetchone()
-            if not result:
-                self.registrar_intento_login(None, email, ip_address, user_agent, False)
-                return False, "Usuario no encontrado o inactivo", None
-            
-            user_id, bloqueado_hasta = result
-            
-            if bloqueado_hasta and datetime.strptime(bloqueado_hasta, '%Y-%m-%d %H:%M:%S') > datetime.now():
-                self.registrar_intento_login(user_id, email, ip_address, user_agent, False)
-                return False, "Cuenta temporalmente bloqueada por múltiples intentos fallidos", None
-            
-            # Obtener datos del usuario
-            cursor.execute('''
-                SELECT id, password_hash, nombre_completo, rol, vendedor_asignado, intentos_login 
-                FROM usuarios WHERE email = ?
-            ''', (email,))
-            
-            result = cursor.fetchone()
-            if not result:
-                self.registrar_intento_login(user_id, email, ip_address, user_agent, False)
-                return False, "Error en la autenticación", None
-            
-            user_id, password_hash, nombre_completo, rol, vendedor_asignado, intentos_login = result
-            
-            # Verificar contraseña
-            if self.verify_password(password, password_hash):
-                # Login exitoso - resetear intentos
-                cursor.execute('''
-                    UPDATE usuarios 
-                    SET intentos_login = 0, bloqueado_hasta = NULL, 
-                        ultimo_login = CURRENT_TIMESTAMP
-                    WHERE id = ?
-                ''', (user_id,))
-                
-                # COMMIT INMEDIATO para login exitoso
-                conn.commit()
-                
-                # Registrar login exitoso
-                self.registrar_intento_login(user_id, email, ip_address, user_agent, True)
-                
-                user_data = {
-                    'id': user_id,
-                    'email': email,
-                    'nombre_completo': nombre_completo,
-                    'rol': rol,
-                    'vendedor_asignado': vendedor_asignado
-                }
-                
-                return True, "Login exitoso", user_data
-            else:
-                # Login fallido - incrementar intentos
-                nuevos_intentos = intentos_login + 1
-                bloqueado_hasta = None
-                
-                from config import config
-                if nuevos_intentos >= config.MAX_LOGIN_ATTEMPTS:
-                    bloqueado_hasta = (datetime.now() + timedelta(minutes=config.LOCKOUT_TIME_MINUTES)).strftime('%Y-%m-%d %H:%M:%S')
-                
-                cursor.execute('''
-                    UPDATE usuarios 
-                    SET intentos_login = ?, bloqueado_hasta = ?
-                    WHERE id = ?
-                ''', (nuevos_intentos, bloqueado_hasta, user_id))
-                
-                # COMMIT INMEDIATO para actualización de intentos
-                conn.commit()
-                
-                self.registrar_intento_login(user_id, email, ip_address, user_agent, False)
-                
-                intentos_restantes = config.MAX_LOGIN_ATTEMPTS - nuevos_intentos
-                if intentos_restantes > 0:
-                    return False, f"Contraseña incorrecta. Intentos restantes: {intentos_restantes}", None
-                else:
-                    return False, f"Cuenta bloqueada por {config.LOCKOUT_TIME_MINUTES} minutos debido a múltiples intentos fallidos", None
-                
-        except Exception as e:
-            # ROLLBACK en caso de error
-            conn.rollback()
-            return False, f"Error en autenticación: {str(e)}", None
-        finally:
-            conn.close()
-
-    def registrar_intento_login(self, user_id, email, ip_address, user_agent, exito):
-        """Registra un intento de login - VERSIÓN CENTRALIZADA"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        try:
-            cursor.execute('''
-                INSERT INTO auditoria_login (usuario_id, email, ip_address, user_agent, exito)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (user_id, email, ip_address, user_agent, 1 if exito else 0))
-            
-            # COMMIT para asegurar que el intento de login se guarde
-            conn.commit()
-            
-        except Exception as e:
-            # ROLLBACK en caso de error, pero no interrumpir el flujo principal
-            conn.rollback()
-            print(f"⚠️ Error registrando intento de login: {e}")
-        finally:
-            conn.close()
-
-    def crear_usuario(self, email, nombre_completo, rol, vendedor_asignado=None, activo=True):
-        """Crea un nuevo usuario con PERSISTENCIA GARANTIZADA"""
-        print(f"🔍 DEBUG - Iniciando creación de usuario: {email}")
-        
-        if not self.is_valid_email(email):
-            return False, "Email debe ser del dominio @alpapel.com"
-        
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        try:
-            # Verificar si el usuario ya existe
-            cursor.execute('SELECT id FROM usuarios WHERE email = ?', (email,))
-            if cursor.fetchone():
-                conn.close()
-                return False, "Ya existe un usuario con este email"
-            
-            # Generar contraseña temporal
-            import random
-            import string
-            
-            letras_mayus = random.choice(string.ascii_uppercase)
-            letras_minus = random.choice(string.ascii_lowercase)
-            numeros = ''.join(random.choices(string.digits, k=4))
-            caracter_especial = random.choice('!@#$%^&*')
-            
-            partes = [letras_mayus, letras_minus, numeros, caracter_especial]
-            random.shuffle(partes)
-            password_temporal = ''.join(partes)
-            
-            print(f"🔐 DEBUG - Contraseña generada: {password_temporal}")
-            
-            # 🆕 DIAGNÓSTICO: Verificar el hash
-            password_hash = self.hash_password(password_temporal)
-            print(f"🔐 DEBUG - Hash generado: {password_hash}")
-            
-            # 🆕 DIAGNÓSTICO: Verificar que el hash sea válido
-            hash_valido = self.verify_password(password_temporal, password_hash)
-            print(f"🔐 DEBUG - Hash válido para verificación: {hash_valido}")
-            
-            # INSERTAR USUARIO
-            cursor.execute('''
-                INSERT INTO usuarios 
-                (email, password_hash, nombre_completo, rol, vendedor_asignado, activo, email_verificado)
-                VALUES (?, ?, ?, ?, ?, ?, 1)
-            ''', (email, password_hash, nombre_completo, rol, vendedor_asignado, 1 if activo else 0))
-            
-            # ✅ COMMIT CRÍTICO Y EXPLÍCITO
-            conn.commit()
-            print(f"✅ DEBUG - Usuario {email} CREADO Y PERSISTIDO en BD")
-            
-            # 🆕 DIAGNÓSTICO: Verificar que se guardó en BD
-            cursor.execute('SELECT email, password_hash FROM usuarios WHERE email = ?', (email,))
-            usuario_guardado = cursor.fetchone()
-            print(f"🔍 DEBUG - Usuario guardado en BD: {usuario_guardado}")
-            
-            return True, f"Usuario creado exitosamente. Contraseña temporal: {password_temporal}"
-            
-        except Exception as e:
-            # ✅ ROLLBACK EXPLÍCITO en error
-            conn.rollback()
-            print(f"❌ DEBUG - Error creando usuario: {str(e)}")
-            return False, f"Error creando usuario: {str(e)}"
-        finally:
-            # ✅ CERRAR CONEXIÓN SIEMPRE
-            conn.close()
-
-    def obtener_usuarios(self):
-        """Obtiene todos los usuarios del sistema - VERSIÓN CENTRALIZADA"""
-        conn = self.get_connection()
-        
-        try:
-            query = '''
-                SELECT id, email, nombre_completo, rol, vendedor_asignado, activo, 
-                       fecha_creacion, ultimo_login, email_verificado
-                FROM usuarios 
-                ORDER BY nombre_completo
-            '''
-            df = pd.read_sql_query(query, conn)
-            return df
-        except Exception as e:
-            print(f"Error obteniendo usuarios: {e}")
-            return pd.DataFrame()
-        finally:
-            conn.close()
-
-    def actualizar_usuario(self, user_id, datos):
-        """Actualiza los datos de un usuario - VERSIÓN CENTRALIZADA"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        try:
-            cursor.execute('''
-                UPDATE usuarios 
-                SET nombre_completo = ?, rol = ?, vendedor_asignado = ?, activo = ?
-                WHERE id = ?
-            ''', (datos['nombre_completo'], datos['rol'], datos['vendedor_asignado'], 
-                  datos['activo'], user_id))
-            
-            # COMMIT INMEDIATO para actualización
-            conn.commit()
-            return True, "Usuario actualizado exitosamente"
-        except Exception as e:
-            # ROLLBACK en caso de error
-            conn.rollback()
-            return False, f"Error actualizando usuario: {str(e)}"
-        finally:
-            conn.close()
-
-    def cambiar_password(self, user_id, nueva_password):
-        """Cambia la contraseña de un usuario - VERSIÓN CENTRALIZADA"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        try:
-            is_valid, message = self.is_strong_password(nueva_password)
-            if not is_valid:
-                return False, message
-            
-            password_hash = self.hash_password(nueva_password)
-            
-            cursor.execute('''
-                UPDATE usuarios 
-                SET password_hash = ?, intentos_login = 0, bloqueado_hasta = NULL
-                WHERE id = ?
-            ''', (password_hash, user_id))
-            
-            # COMMIT INMEDIATO para cambio de contraseña
-            conn.commit()
-            return True, "Contraseña cambiada exitosamente"
-        except Exception as e:
-            # ROLLBACK en caso de error
-            conn.rollback()
-            return False, f"Error cambiando contraseña: {str(e)}"
-        finally:
-            conn.close()
-
-    def eliminar_usuario(self, user_id):
-        """Elimina un usuario del sistema - VERSIÓN CENTRALIZADA"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        try:
-            # No permitir eliminar el último admin
-            cursor.execute('SELECT COUNT(*) FROM usuarios WHERE rol = "admin" AND activo = 1')
-            admin_count = cursor.fetchone()[0]
-            
-            cursor.execute('SELECT rol FROM usuarios WHERE id = ?', (user_id,))
-            user_rol = cursor.fetchone()
-            
-            if user_rol and user_rol[0] == 'admin' and admin_count <= 1:
-                return False, "No se puede eliminar el último administrador activo"
-            
-            cursor.execute('DELETE FROM usuarios WHERE id = ?', (user_id,))
-            
-            # COMMIT para asegurar la eliminación
-            conn.commit()
-            
-            return True, "Usuario eliminado correctamente"
-            
-        except Exception as e:
-            # ROLLBACK en caso de error
-            conn.rollback()
-            return False, f"Error eliminando usuario: {str(e)}"
-        finally:
-            conn.close()
-
-    def obtener_estadisticas_sistema(self):
-        """Obtiene estadísticas del sistema para el dashboard de admin - VERSIÓN CENTRALIZADA"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        try:
-            # Total usuarios
-            cursor.execute('SELECT COUNT(*) FROM usuarios')
-            total_usuarios = cursor.fetchone()[0] or 0
-            
-            # Usuarios activos
-            cursor.execute('SELECT COUNT(*) FROM usuarios WHERE activo = 1')
-            usuarios_activos = cursor.fetchone()[0] or 0
-            
-            # Logins hoy (con manejo de tabla inexistente)
-            logins_hoy = 0
-            try:
-                cursor.execute('SELECT COUNT(*) FROM auditoria_login WHERE DATE(fecha_login) = DATE("now") AND exito = 1')
-                logins_hoy = cursor.fetchone()[0] or 0
-            except:
-                logins_hoy = 0
-            
-            # Sesiones activas (estimado basado en últimos 30 minutos)
-            sesiones_activas = 1
-            try:
-                cursor.execute('SELECT COUNT(DISTINCT usuario_id) FROM auditoria_login WHERE fecha_login > datetime("now", "-30 minutes") AND exito = 1')
-                result = cursor.fetchone()
-                sesiones_activas = result[0] if result and result[0] else 1
-            except:
-                sesiones_activas = 1
-            
-            return {
-                'total_usuarios': total_usuarios,
-                'usuarios_activos': usuarios_activos,
-                'logins_hoy': logins_hoy,
-                'sesiones_activas': sesiones_activas
-            }
-            
-        except Exception as e:
-            print(f"Error obteniendo estadísticas: {e}")
-            return {
-                'total_usuarios': 0,
-                'usuarios_activos': 0,
-                'logins_hoy': 0,
-                'sesiones_activas': 1
-            }
-        finally:
-            conn.close()
-
-    def obtener_vendedores(self):
-        """Obtiene todos los vendedores"""
-        conn = self.get_connection()
-        query = 'SELECT nombre_vendedor FROM vendedores ORDER BY nombre_vendedor'
-        df = pd.read_sql_query(query, conn)
-        conn.close()
-        return df
-
-    # ============================================================
-    # MÉTODOS ORIGINALES DE DATABASE_MANAGER
-    # ============================================================
-
     def init_database(self):
-        """Inicializa la base de datos con todas las tablas necesarias - VERSIÓN MEJORADA"""
-        conn = self.get_connection()
+        """Inicializa la base de datos con todas las tablas necesarias"""
+        conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
-        try:
-            # Tabla de usuarios (AHORA INCLUIDA AQUÍ)
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS usuarios (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    email TEXT UNIQUE NOT NULL,
-                    password_hash TEXT NOT NULL,
-                    nombre_completo TEXT NOT NULL,
-                    rol TEXT NOT NULL DEFAULT 'comercial',
-                    vendedor_asignado TEXT,
-                    activo INTEGER DEFAULT 1,
-                    email_verificado INTEGER DEFAULT 0,
-                    fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    ultimo_login DATETIME,
-                    intentos_login INTEGER DEFAULT 0,
-                    bloqueado_hasta DATETIME,
-                    reset_token TEXT,
-                    reset_token_expira DATETIME
-                )
-            ''')
-            
-            # Tabla de auditoría de login (AHORA INCLUIDA AQUÍ)
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS auditoria_login (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    usuario_id INTEGER,
-                    email TEXT,
-                    fecha_login DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    ip_address TEXT,
-                    user_agent TEXT,
-                    exito INTEGER DEFAULT 0,
-                    FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
-                )
-            ''')
-            
-            # Tabla de vendedores
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS vendedores (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    nombre_vendedor TEXT UNIQUE
-                )
-            ''')
-            
-            # Tabla de clientes
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS clientes (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    nit_cliente TEXT UNIQUE,
-                    razon_social TEXT,
-                    telefono TEXT,
-                    celular TEXT,
-                    direccion TEXT,
-                    email TEXT,
-                    ciudad TEXT,
-                    vendedor_asignado TEXT,
-                    estado_cupo TEXT DEFAULT 'activo',
-                    fecha_registro DATE DEFAULT CURRENT_DATE
-                )
-            ''')
-            
-            # Tabla de cartera actual
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS cartera_actual (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    nit_cliente TEXT,
-                    razon_social_cliente TEXT,
-                    nombre_vendedor TEXT,
-                    centro_operacion TEXT,
-                    nro_factura TEXT,
-                    total_cop REAL,
-                    fecha_emision DATE,
-                    fecha_vencimiento DATE,
-                    condicion_pago TEXT,
-                    dias_vencidos INTEGER,
-                    dias_gracia INTEGER,
-                    fecha_carga DATE DEFAULT CURRENT_DATE
-                )
-            ''')
-            
-            # Tabla de historial de cartera
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS historial_cartera (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    nit_cliente TEXT,
-                    nro_factura TEXT,
-                    total_cop REAL,
-                    fecha_emision DATE,
-                    fecha_vencimiento DATE,
-                    condicion_pago TEXT,
-                    dias_vencidos INTEGER,
-                    fecha_registro DATE
-                )
-            ''')
-            
-            # Tabla de gestiones
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS gestiones (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    nit_cliente TEXT,
-                    razon_social_cliente TEXT,
-                    tipo_contacto TEXT,
-                    resultado TEXT,
-                    fecha_contacto DATETIME,
-                    usuario TEXT,
-                    observaciones TEXT,
-                    promesa_pago_fecha DATE,
-                    promesa_pago_monto REAL,
-                    proxima_gestion DATE,
-                    fecha_registro DATETIME DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
-            
-            # Tabla de historial cartera diario
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS historial_cartera_diario (
-                    fecha_carga DATE,
-                    nit_cliente TEXT,
-                    razon_social_cliente TEXT,
-                    nombre_vendedor TEXT,
-                    centro_operacion TEXT,
-                    nro_factura TEXT,
-                    total_cop REAL,
-                    fecha_emision DATE,
-                    fecha_vencimiento DATE,
-                    condicion_pago TEXT,
-                    dias_vencidos INTEGER,
-                    dias_gracia INTEGER,
-                    telefono TEXT,
-                    celular TEXT,
-                    direccion TEXT,
-                    email TEXT,
-                    ciudad TEXT,
-                    fecha_registro DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY (fecha_carga, nit_cliente, nro_factura)
-                )
-            ''')
-            
-            # Crear usuario admin por defecto si no existe
-            cursor.execute('SELECT COUNT(*) FROM usuarios WHERE email = "cartera@alpapel.com"')
-            if cursor.fetchone()[0] == 0:
-                default_password = self.hash_password("12345678")
-                cursor.execute('''
-                    INSERT INTO usuarios (email, password_hash, nombre_completo, rol, email_verificado, activo)
-                    VALUES (?, ?, ?, ?, 1, 1)
-                ''', ('cartera@alpapel.com', default_password, 'Administrador Principal', 'admin'))
-                print("✅ Usuario admin creado: cartera@alpapel.com / 12345678")
-            
-            # COMMIT CRÍTICO - asegurar que las tablas se creen
-            conn.commit()
-            print("✅ Tablas de base de datos inicializadas correctamente")
-            
-        except Exception as e:
-            print(f"❌ Error inicializando base de datos: {e}")
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
-
+        # Tabla de vendedores
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS vendedores (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nombre_vendedor TEXT UNIQUE
+            )
+        ''')
+        
+        # Tabla de clientes
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS clientes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nit_cliente TEXT UNIQUE,
+                razon_social TEXT,
+                telefono TEXT,
+                celular TEXT,
+                direccion TEXT,
+                email TEXT,
+                ciudad TEXT,
+                vendedor_asignado TEXT,
+                estado_cupo TEXT DEFAULT 'activo',
+                fecha_registro DATE DEFAULT CURRENT_DATE
+            )
+        ''')
+        
+        # Tabla de cartera actual
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS cartera_actual (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nit_cliente TEXT,
+                razon_social_cliente TEXT,
+                nombre_vendedor TEXT,
+                centro_operacion TEXT,
+                nro_factura TEXT,
+                total_cop REAL,
+                fecha_emision DATE,
+                fecha_vencimiento DATE,
+                condicion_pago TEXT,
+                dias_vencidos INTEGER,
+                dias_gracia INTEGER,
+                fecha_carga DATE DEFAULT CURRENT_DATE
+            )
+        ''')
+        
+        # Tabla de historial de cartera
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS historial_cartera (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nit_cliente TEXT,
+                nro_factura TEXT,
+                total_cop REAL,
+                fecha_emision DATE,
+                fecha_vencimiento DATE,
+                condicion_pago TEXT,
+                dias_vencidos INTEGER,
+                fecha_registro DATE
+            )
+        ''')
+        
+        # Tabla de gestiones
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS gestiones (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nit_cliente TEXT,
+                razon_social_cliente TEXT,
+                tipo_contacto TEXT,
+                resultado TEXT,
+                fecha_contacto DATETIME,
+                usuario TEXT,
+                observaciones TEXT,
+                promesa_pago_fecha DATE,
+                promesa_pago_monto REAL,
+                proxima_gestion DATE,
+                fecha_registro DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        # Tabla de historial cartera diario
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS historial_cartera_diario (
+                fecha_carga DATE,
+                nit_cliente TEXT,
+                razon_social_cliente TEXT,
+                nombre_vendedor TEXT,
+                centro_operacion TEXT,
+                nro_factura TEXT,
+                total_cop REAL,
+                fecha_emision DATE,
+                fecha_vencimiento DATE,
+                condicion_pago TEXT,
+                dias_vencidos INTEGER,
+                dias_gracia INTEGER,
+                telefono TEXT,
+                celular TEXT,
+                direccion TEXT,
+                email TEXT,
+                ciudad TEXT,
+                fecha_registro DATETIME DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (fecha_carga, nit_cliente, nro_factura)
+            )
+        ''')
+        
+        conn.commit()
+        conn.close()
+    
     def convertir_fecha(self, fecha):
         """Convierte diferentes formatos de fecha a string YYYY-MM-DD"""
         if pd.isna(fecha):
@@ -622,7 +146,7 @@ class DatabaseManager:
         elif hasattr(fecha, 'strftime'):
             return fecha.strftime('%Y-%m-%d')
         return str(fecha)
-
+    
     def limpiar_valor_monetario(self, valor):
         """Limpia y convierte valores monetarios"""
         if pd.isna(valor):
@@ -634,7 +158,11 @@ class DatabaseManager:
             except:
                 return 0.0
         return float(valor)
-
+    
+    # ============================================================
+    # 🆕 NUEVA FUNCIÓN PARA RANGOS DE FECHA - FILTROS DINÁMICOS
+    # ============================================================
+    
     def obtener_rango_fechas_por_periodo(self, periodo_seleccionado, fecha_inicio_personalizada=None, fecha_fin_personalizada=None):
         """Calcula el rango de fechas según el período seleccionado"""
         hoy = datetime.now()
@@ -666,12 +194,9 @@ class DatabaseManager:
             fin = hoy
         
         return inicio.strftime('%Y-%m-%d'), fin.strftime('%Y-%m-%d')
-
+    
     def cargar_excel_cartera(self, file_path):
-        """Carga datos del Excel de cartera a la base de datos - VERSIÓN CON PERSISTENCIA"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
+        """Carga datos del Excel de cartera a la base de datos"""
         try:
             df = pd.read_excel(file_path)
             
@@ -716,11 +241,14 @@ class DatabaseManager:
             if 'fecha_vencimiento' in df.columns:
                 df['fecha_vencimiento'] = df['fecha_vencimiento'].apply(self.convertir_fecha)
             
+            conn = sqlite3.connect(self.db_path)
+            
             # 1. Insertar vendedores
             if 'nombre_vendedor' in df.columns:
                 vendedores_unicos = df['nombre_vendedor'].dropna().unique()
                 for vendedor in vendedores_unicos:
                     if vendedor and str(vendedor).strip() != '':
+                        cursor = conn.cursor()
                         cursor.execute('''
                             INSERT OR IGNORE INTO vendedores (nombre_vendedor)
                             VALUES (?)
@@ -729,10 +257,11 @@ class DatabaseManager:
             # 2. Insertar clientes
             for _, row in df.iterrows():
                 if 'nit_cliente' in df.columns and pd.notna(row['nit_cliente']):
+                    cursor = conn.cursor()
                     cursor.execute('''
                         INSERT OR REPLACE INTO clientes 
                         (nit_cliente, razon_social, telefono, celular, direccion, 
-                        email, ciudad, vendedor_asignado)
+                         email, ciudad, vendedor_asignado)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     ''', (
                         str(row['nit_cliente']),
@@ -753,8 +282,8 @@ class DatabaseManager:
                     cursor.execute('''
                         INSERT INTO cartera_actual 
                         (nit_cliente, razon_social_cliente, nombre_vendedor, centro_operacion,
-                        nro_factura, total_cop, fecha_emision, fecha_vencimiento,
-                        condicion_pago, dias_vencidos, dias_gracia)
+                         nro_factura, total_cop, fecha_emision, fecha_vencimiento,
+                         condicion_pago, dias_vencidos, dias_gracia)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ''', (
                         str(row['nit_cliente']),
@@ -774,26 +303,22 @@ class DatabaseManager:
             cursor.execute('''
                 INSERT INTO historial_cartera 
                 (nit_cliente, nro_factura, total_cop, fecha_emision,
-                fecha_vencimiento, condicion_pago, dias_vencidos, fecha_registro)
+                 fecha_vencimiento, condicion_pago, dias_vencidos, fecha_registro)
                 SELECT nit_cliente, nro_factura, total_cop, fecha_emision,
-                    fecha_vencimiento, condicion_pago, dias_vencidos, CURRENT_DATE
+                       fecha_vencimiento, condicion_pago, dias_vencidos, CURRENT_DATE
                 FROM cartera_actual
             ''')
             
-            # COMMIT CRÍTICO - asegurar que toda la carga se persista
             conn.commit()
+            conn.close()
             return True, f"Cartera cargada exitosamente. {len(df)} registros procesados."
             
         except Exception as e:
-            # ROLLBACK en caso de error
-            conn.rollback()
             return False, f"Error al cargar Excel: {str(e)}"
-        finally:
-            conn.close()
-
+    
     def obtener_cartera_actual(self):
         """Obtiene la cartera actual - VERSIÓN CORREGIDA"""
-        conn = self.get_connection()
+        conn = sqlite3.connect(self.db_path)
         
         user = self.current_user
                 
@@ -825,10 +350,10 @@ class DatabaseManager:
         conn.close()
         
         return df
-
+    
     def obtener_clientes(self):
         """Obtiene todos los clientes FILTRADOS por usuario - VERSIÓN CORREGIDA"""
-        conn = self.get_connection()
+        conn = sqlite3.connect(self.db_path)
         
         user = self.current_user
         if not user:
@@ -866,18 +391,26 @@ class DatabaseManager:
         
         conn.close()
         return df
-
+    
+    def obtener_vendedores(self):
+        """Obtiene todos los vendedores"""
+        conn = sqlite3.connect(self.db_path)
+        query = 'SELECT nombre_vendedor FROM vendedores ORDER BY nombre_vendedor'
+        df = pd.read_sql_query(query, conn)
+        conn.close()
+        return df
+    
     def obtener_ciudades(self):
         """Obtiene todas las ciudades únicas"""
-        conn = self.get_connection()
+        conn = sqlite3.connect(self.db_path)
         query = 'SELECT DISTINCT ciudad FROM clientes WHERE ciudad IS NOT NULL AND ciudad != "" ORDER BY ciudad'
         df = pd.read_sql_query(query, conn)
         conn.close()
         return df
-
+    
     def buscar_clientes(self, texto_busqueda):
         """Busca clientes por texto"""
-        conn = self.get_connection()
+        conn = sqlite3.connect(self.db_path)
         
         user = self.current_user
         if not user:
@@ -905,10 +438,10 @@ class DatabaseManager:
         df = pd.read_sql_query(query, conn, params=params)
         conn.close()
         return df
-
+    
     def buscar_cartera(self, texto_busqueda):
         """Busca en cartera por texto FILTRADO por usuario"""
-        conn = self.get_connection()
+        conn = sqlite3.connect(self.db_path)
         
         user = self.current_user
         if not user:
@@ -936,10 +469,10 @@ class DatabaseManager:
         df = pd.read_sql_query(query, conn, params=params)
         conn.close()
         return df
-
+    
     def filtrar_cartera(self, vendedor=None, ciudad=None, dias_vencidos_min=None, dias_vencidos_max=None):
         """Filtra cartera con múltiples criterios Y por usuario"""
-        conn = self.get_connection()
+        conn = sqlite3.connect(self.db_path)
         
         user = self.current_user
         if not user:
@@ -997,7 +530,7 @@ class DatabaseManager:
         df = pd.read_sql_query(query, conn, params=params)
         conn.close()
         return df
-
+    
     def cargar_excel_cartera_con_debug(self, file_path):
         """Versión con debugging de la carga de Excel"""
         print(f"🔍 DEBUG: Iniciando carga de Excel desde: {file_path}")
@@ -1035,41 +568,30 @@ class DatabaseManager:
             return False, f"Error general: {str(e)}"
 
     def registrar_gestion(self, gestion_data):
-        """Registra una nueva gestión con PERSISTENCIA GARANTIZADA"""
-        conn = self.get_connection()
+        """Registra una nueva gestión con información del usuario"""
+        conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
-        try:
-            user = self.current_user
-            if user:
-                gestion_data_list = list(gestion_data)
-                gestion_data_list[5] = user['email']  # usuario
-                gestion_data = tuple(gestion_data_list)
-            
-            cursor.execute('''
-                INSERT INTO gestiones 
-                (nit_cliente, razon_social_cliente, tipo_contacto, resultado, fecha_contacto, usuario,
-                observaciones, promesa_pago_fecha, promesa_pago_monto, proxima_gestion)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', gestion_data)
-            
-            # ✅ COMMIT INMEDIATO Y OBLIGATORIO
-            conn.commit()
-            print(f"✅ GESTIÓN REGISTRADA Y PERSISTIDA: {gestion_data[0]} - {gestion_data[2]}")
-            return True
-            
-        except Exception as e:
-            # ✅ ROLLBACK en caso de error
-            conn.rollback()
-            print(f"❌ Error registrando gestión: {e}")
-            return False
-        finally:
-            # ✅ CERRAR CONEXIÓN SIEMPRE
-            conn.close()
-
+        user = self.current_user
+        if user:
+            gestion_data_list = list(gestion_data)
+            gestion_data_list[5] = user['email']  # usuario
+            gestion_data = tuple(gestion_data_list)
+        
+        cursor.execute('''
+            INSERT INTO gestiones 
+            (nit_cliente, razon_social_cliente, tipo_contacto, resultado, fecha_contacto, usuario,
+            observaciones, promesa_pago_fecha, promesa_pago_monto, proxima_gestion)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', gestion_data)
+        
+        conn.commit()
+        conn.close()
+        return True
+    
     def obtener_gestiones_cliente(self, nit_cliente):
         """Obtiene el historial de gestiones de un cliente"""
-        conn = self.get_connection()
+        conn = sqlite3.connect(self.db_path)
         query = '''
             SELECT * FROM gestiones 
             WHERE nit_cliente = ? 
@@ -1081,7 +603,7 @@ class DatabaseManager:
 
     def obtener_todas_gestiones(self):
         """Obtiene TODAS las gestiones para exportar"""
-        conn = self.get_connection()
+        conn = sqlite3.connect(self.db_path)
         query = '''
             SELECT * FROM gestiones 
             ORDER BY fecha_contacto DESC
@@ -1090,9 +612,13 @@ class DatabaseManager:
         conn.close()
         return df
 
+    # ============================================================
+    # 🆕 FUNCIONES MODIFICADAS PARA FILTROS DINÁMICOS
+    # ============================================================
+
     def obtener_gestiones_por_periodo(self, fecha_inicio, fecha_fin):
         """Obtiene gestiones dentro de un rango de fechas específico"""
-        conn = self.get_connection()
+        conn = sqlite3.connect(self.db_path)
         
         user = self.current_user
         if not user:
@@ -1127,7 +653,7 @@ class DatabaseManager:
     def obtener_progreso_gestion(self, fecha_inicio=None, fecha_fin=None):
         """Obtiene progreso de gestión para un período específico"""
         try:
-            conn = self.get_connection()
+            conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             
             user = self.current_user
@@ -1251,21 +777,9 @@ class DatabaseManager:
             except:
                 pass
 
-    def _progreso_vacio(self):
-        """Retorna progreso vacío cuando no hay datos"""
-        return {
-            'total_clientes': 0,
-            'clientes_gestionados': 0,
-            'clientes_mora': 0,
-            'clientes_mora_gestionados': 0,
-            'porcentaje_general': 0,
-            'porcentaje_mora': 0,
-            'periodo': 'Sin datos'
-        }
-
     def obtener_estadisticas_resultados_filtrado(self, fecha_inicio=None, fecha_fin=None):
         """Obtiene estadísticas FILTRADAS por usuario actual y período específico"""
-        conn = self.get_connection()
+        conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
         user = self.current_user
@@ -1322,7 +836,7 @@ class DatabaseManager:
 
     def obtener_evolucion_diaria_gestiones(self, fecha_inicio=None, fecha_fin=None):
         """Obtiene evolución diaria de gestiones para un período específico"""
-        conn = self.get_connection()
+        conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
         user = self.current_user
@@ -1370,7 +884,7 @@ class DatabaseManager:
 
     def obtener_evolucion_historica_gestiones(self, fecha_inicio=None, fecha_fin=None):
         """Obtiene evolución histórica de gestiones para un período específico"""
-        conn = self.get_connection()
+        conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
         user = self.current_user
@@ -1419,6 +933,22 @@ class DatabaseManager:
             print(f"Error en obtener_evolucion_historica_gestiones: {e}")
             return [], 0
 
+    # ============================================================
+    # FUNCIONES AUXILIARES Y DE COMPATIBILIDAD
+    # ============================================================
+
+    def _progreso_vacio(self):
+        """Retorna progreso vacío cuando no hay datos"""
+        return {
+            'total_clientes': 0,
+            'clientes_gestionados': 0,
+            'clientes_mora': 0,
+            'clientes_mora_gestionados': 0,
+            'porcentaje_general': 0,
+            'porcentaje_mora': 0,
+            'periodo': 'Sin datos'
+        }
+
     def obtener_gestiones_mes_actual(self):
         """Función de compatibilidad - usa el nuevo sistema con mes actual por defecto"""
         fecha_inicio = datetime.now().replace(day=1).strftime('%Y-%m-%d')
@@ -1426,10 +956,7 @@ class DatabaseManager:
         return self.obtener_gestiones_por_periodo(fecha_inicio, fecha_fin)
 
     def importar_gestiones_excel(self, file_path):
-        """Importa gestiones desde archivo Excel con PERSISTENCIA GARANTIZADA"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
+        """Importa gestiones desde archivo Excel con validaciones robustas y estadísticas detalladas"""
         try:
             # Leer archivo Excel
             df = pd.read_excel(file_path)
@@ -1445,8 +972,11 @@ class DatabaseManager:
             # Validar datos específicos
             errores_validacion = self.validar_datos_gestiones_importacion(df)
             if errores_validacion:
-                mensaje_errores = "\n".join(errores_validacion[:5])
+                mensaje_errores = "\n".join(errores_validacion[:5])  # Mostrar máximo 5 errores
                 return False, f"Errores de validación:\n{mensaje_errores}"
+            
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
             
             gestiones_importadas = 0
             gestiones_con_errores = 0
@@ -1523,10 +1053,10 @@ class DatabaseManager:
                     errores_detallados.append(f"Fila {index + 2}: Error interno - {str(e)}")
                     continue
             
-            # COMMIT CRÍTICO - asegurar que todas las gestiones importadas se guarden
             conn.commit()
+            conn.close()
             
-            # Preparar mensaje de resultado
+            # Preparar mensaje de resultado CON ESTADÍSTICAS DETALLADAS
             if gestiones_importadas > 0:
                 mensaje_resultado = f"✅ IMPORTACIÓN COMPLETADA EXITOSAMENTE\n\n"
                 mensaje_resultado += f"📊 RESUMEN DE IMPORTACIÓN:\n"
@@ -1539,7 +1069,7 @@ class DatabaseManager:
                 
                 if gestiones_con_errores > 0:
                     mensaje_resultado += f"\n⚠️ ERRORES DETECTADOS ({min(len(errores_detallados), 5)} de {len(errores_detallados)}):\n"
-                    for error in errores_detallados[:5]:
+                    for error in errores_detallados[:5]:  # Mostrar máximo 5 errores
                         mensaje_resultado += f"• {error}\n"
                     
                     if len(errores_detallados) > 5:
@@ -1547,17 +1077,13 @@ class DatabaseManager:
             else:
                 mensaje_resultado = f"❌ IMPORTACIÓN FALLIDA\n\n"
                 mensaje_resultado += f"No se pudieron importar gestiones. Errores encontrados:\n"
-                for error in errores_detallados[:10]:
+                for error in errores_detallados[:10]:  # Mostrar máximo 10 errores
                     mensaje_resultado += f"• {error}\n"
             
             return gestiones_importadas > 0, mensaje_resultado
             
         except Exception as e:
-            # ROLLBACK en caso de error general
-            conn.rollback()
             return False, f"Error al importar Excel: {str(e)}"
-        finally:
-            conn.close()
 
     def validar_datos_gestiones_importacion(self, df):
         """Valida los datos del DataFrame de importación"""
@@ -1588,7 +1114,7 @@ class DatabaseManager:
 
     def validar_nit_existente(self, nit):
         """Valida que un NIT exista en la base de datos"""
-        conn = self.get_connection()
+        conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
         cursor.execute('SELECT COUNT(*) FROM clientes WHERE nit_cliente = ?', (str(nit),))
@@ -1637,7 +1163,7 @@ class DatabaseManager:
                 'Gestión No Finalizada (Reintentar pronto)'
             ]
             return resultado in resultados_validos
-
+    
     def obtener_metricas_principales(self):
         """Obtiene métricas principales del dashboard - VERSIÓN SIMPLIFICADA Y SEGURA"""
         try:
@@ -1744,7 +1270,7 @@ class DatabaseManager:
 
     def obtener_proyeccion_vencimientos(self):
         """Obtiene proyección de vencimientos para los próximos 3 meses"""
-        conn = self.get_connection()
+        conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
         user = self.current_user
@@ -1799,7 +1325,7 @@ class DatabaseManager:
 
     def obtener_datos_completos_cliente(self, nit_cliente):
         """Obtiene todos los datos de un cliente incluyendo información de contacto"""
-        conn = self.get_connection()
+        conn = sqlite3.connect(self.db_path)
         
         try:
             # Obtener datos básicos del cliente
@@ -1876,7 +1402,7 @@ class DatabaseManager:
 
     def obtener_clientes_filtrados(self, filtro_tipo):
         """Obtiene clientes según filtros específicos Y por usuario"""
-        conn = self.get_connection()
+        conn = sqlite3.connect(self.db_path)
         
         user = self.current_user
         if not user:
@@ -1943,8 +1469,12 @@ class DatabaseManager:
             print(f"Error en obtener_clientes_filtrados: {e}")
             return pd.DataFrame()
 
+    # ============================================================
+    # FUNCIONES DE HISTORIAL (EXISTENTES - SIN CAMBIOS)
+    # ============================================================
+
     def cargar_historial_completo(self, ruta_base="CARTERA DIARIA"):
-        """Carga todos los archivos Excel históricos - VERSIÓN CON PERSISTENCIA"""
+        """Carga todos los archivos Excel históricos usando solo columnas básicas"""
         try:
             import os
             import glob
@@ -1962,6 +1492,7 @@ class DatabaseManager:
             for año_dir in os.listdir(ruta_base):
                 ruta_año = os.path.join(ruta_base, año_dir)
                 
+                # Verificar que es un directorio de año (2025, 2026, etc.)
                 if not os.path.isdir(ruta_año) or not año_dir.isdigit():
                     continue
                     
@@ -1983,6 +1514,7 @@ class DatabaseManager:
                         try:
                             # Extraer fecha del nombre del archivo
                             nombre_archivo = os.path.basename(archivo_path)
+                            # Formato: "CARTERA 01-10.xlsx" → día=01, mes=10
                             partes = nombre_archivo.replace('CARTERA ', '').replace('.xlsx', '').split('-')
                             if len(partes) == 2:
                                 dia = int(partes[0])
@@ -2020,19 +1552,23 @@ class DatabaseManager:
             return False, f"Error en carga masiva: {str(e)}"
 
     def cargar_excel_historial(self, file_path, fecha_carga):
-        """Carga un archivo Excel al historial diario - VERSIÓN CON PERSISTENCIA"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
+        """Carga un archivo Excel al historial diario usando solo las primeras 10 columnas"""
         try:
-            # Leer SOLO las primeras 10 columnas
+            # Leer SOLO las primeras 10 columnas (por posición, sin importar nombres)
             df = pd.read_excel(file_path, usecols=range(10))
             
-            # Asignar nombres estándar
+            # Asignar nombres estándar a las columnas (las primeras 10 siempre en el mismo orden)
             nombres_columnas = [
-                'nombre_vendedor', 'nit_cliente', 'razon_social_cliente', 'centro_operacion', 
-                'nro_factura', 'total_cop', 'fecha_emision', 'fecha_vencimiento', 
-                'condicion_pago', 'dias_vencidos'
+                'nombre_vendedor',      # Columna 0: Razón social vend. cliente
+                'nit_cliente',          # Columna 1: Cliente
+                'razon_social_cliente', # Columna 2: Razón social sucursal
+                'centro_operacion',     # Columna 3: C.O.
+                'nro_factura',          # Columna 4: Nro. docto. cruce
+                'total_cop',            # Columna 5: Total COP
+                'fecha_emision',        # Columna 6: Fecha docto cruce
+                'fecha_vencimiento',    # Columna 7: Fecha vcto.
+                'condicion_pago',       # Columna 8: Cond. pago cliente
+                'dias_vencidos'         # Columna 9: Dias vencidos
             ]
             
             # Renombrar las columnas
@@ -2047,6 +1583,9 @@ class DatabaseManager:
             # Convertir fechas
             df['fecha_emision'] = df['fecha_emision'].apply(self.convertir_fecha)
             df['fecha_vencimiento'] = df['fecha_vencimiento'].apply(self.convertir_fecha)
+            
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
             
             # Insertar en historial_cartera_diario
             registros_insertados = 0
@@ -2077,20 +1616,17 @@ class DatabaseManager:
                         print(f"⚠️ Error insertando registro: {e}")
                         continue
             
-            # COMMIT CRÍTICO - asegurar que el historial se guarde
             conn.commit()
+            conn.close()
+            
             return True, f"{registros_insertados} registros cargados"
             
         except Exception as e:
-            # ROLLBACK en caso de error
-            conn.rollback()
             return False, f"Error cargando archivo {os.path.basename(file_path)}: {str(e)}"
-        finally:
-            conn.close()
 
     def verificar_historial_cargado(self):
         """Verifica cuántos registros hay en el historial"""
-        conn = self.get_connection()
+        conn = sqlite3.connect(self.db_path)
         query = '''
             SELECT 
                 COUNT(*) as total_registros,
@@ -2106,7 +1642,7 @@ class DatabaseManager:
     def obtener_reporte_carga_historial(self):
         """Obtiene un reporte detallado de lo que se ha cargado en el historial - VERSIÓN CORREGIDA"""
         try:
-            conn = self.get_connection()
+            conn = sqlite3.connect(self.db_path)
             
             query = '''
             SELECT 
@@ -2146,12 +1682,14 @@ class DatabaseManager:
             return {'detalle': pd.DataFrame(), 'resumen': {}}
         
     def cargar_historial_incremental(self, ruta_base="CARTERA DIARIA"):
-        """Carga solo los archivos que no están en el historial - VERSIÓN CON PERSISTENCIA"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
+        """Carga solo los archivos que no están en el historial"""
         try:
+            import glob
+            from datetime import datetime
+            
             # Obtener fechas ya cargadas
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
             cursor.execute('SELECT DISTINCT fecha_carga FROM historial_cartera_diario ORDER BY fecha_carga')
             fechas_cargadas = [row[0] for row in cursor.fetchall()]
             conn.close()
@@ -2207,7 +1745,7 @@ class DatabaseManager:
                                 if success:
                                     archivos_nuevos += 1
                                     resultados.append(f"✅ {fecha_str}: {message}")
-                                    fechas_cargadas.append(fecha_str)
+                                    fechas_cargadas.append(fecha_str)  # Agregar a la lista local
                                 else:
                                     errores += 1
                                     resultados.append(f"❌ {fecha_str}: {message}")
@@ -2227,5 +1765,4 @@ class DatabaseManager:
             return archivos_nuevos > 0, mensaje_final
             
         except Exception as e:
-            conn.close()
             return False, f"Error en carga incremental: {str(e)}"
