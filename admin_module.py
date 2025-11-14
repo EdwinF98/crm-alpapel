@@ -41,10 +41,11 @@ def admin_section():
                 
                 activo = st.checkbox("✅ Usuario Activo", value=True)
             
-            # BOTÓN DE CREAR USUARIO CON DEBUG
+            # BOTÓN DE CREAR USUARIO CON DEBUG COMPLETO
             if st.button("🚀 Crear Usuario", type="primary", key="btn_crear_usuario"):
                 if email and nombre_completo:
                     print(f"🔍 DEBUG ADMIN - Iniciando creación de usuario: {email}")
+                    print(f"🔍 DEBUG - Datos: nombre={nombre_completo}, rol={rol}, vendedor={vendedor}, activo={activo}")
                     
                     # Validar email del dominio
                     if not st.session_state.user_manager.is_valid_email(email):
@@ -52,7 +53,12 @@ def admin_section():
                     else:
                         with st.spinner("Creando usuario..."):
                             try:
+                                # DEBUG: Verificar que user_manager existe y tiene el método
+                                print(f"🔍 DEBUG - user_manager type: {type(st.session_state.user_manager)}")
+                                print(f"🔍 DEBUG - user_manager methods: {[m for m in dir(st.session_state.user_manager) if 'crear' in m.lower()]}")
+                                
                                 # LLAMAR AL MÉTODO DE CREACIÓN
+                                print(f"🔍 DEBUG - Llamando a crear_usuario...")
                                 success, message = st.session_state.user_manager.crear_usuario(
                                     email, nombre_completo, rol, vendedor, activo
                                 )
@@ -68,6 +74,9 @@ def admin_section():
                                     
                             except Exception as e:
                                 print(f"❌ DEBUG ADMIN - Error en creación: {str(e)}")
+                                import traceback
+                                print(f"🔍 TRACEBACK COMPLETO:")
+                                print(traceback.format_exc())
                                 st.error(f"❌ Error creando usuario: {str(e)}")
                 else:
                     st.warning("⚠️ Por favor completa todos los campos obligatorios")
