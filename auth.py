@@ -364,6 +364,13 @@ class UserManager:
             conn.commit()  # ✅ ESTA LÍNEA ES CLAVE
             conn.close()
             
+            try:
+                from database import DatabaseManager
+                db = DatabaseManager()
+                db.sync_to_drive()
+            except Exception as e:
+                print(f"⚠️ Error en sync: {e}")
+            
             return True, f"Usuario creado. Contraseña temporal: {password_temporal}"
             
         except Exception as e:
@@ -384,6 +391,14 @@ class UserManager:
             
             conn.commit()
             conn.close()
+
+            try:
+                from database import DatabaseManager
+                db = DatabaseManager()
+                db.sync_to_drive()
+            except Exception as e:
+                print(f"⚠️ Error en sync: {e}")
+            
             return True, "Usuario actualizado exitosamente"
         except Exception as e:
             return False, f"Error actualizando usuario: {str(e)}"
@@ -404,6 +419,13 @@ class UserManager:
             
             conn.commit()
             conn.close()
+            try:
+                from database import DatabaseManager
+                db = DatabaseManager()
+                db.sync_to_drive()
+            except Exception as e:
+                print(f"⚠️ Error en sync: {e}")
+            
             return True, "Contraseña cambiada exitosamente"
         except Exception as e:
             return False, f"Error cambiando contraseña: {str(e)}"
@@ -417,6 +439,13 @@ class UserManager:
             cursor.execute('DELETE FROM usuarios WHERE id = ?', (user_id,))
             conn.commit()
             conn.close()
+            
+            try:
+                from database import DatabaseManager
+                db = DatabaseManager()
+                db.sync_to_drive()
+            except Exception as e:
+                print(f"⚠️ Error en sync: {e}")
             
             return True, "Usuario eliminado correctamente"
             

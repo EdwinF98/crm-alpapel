@@ -1246,8 +1246,9 @@ class DatabaseManager:
                     continue
             
             conn.commit()
-            conn.close()
-            
+            conn.close()          
+            self.sync_to_drive()
+        
             # Preparar mensaje de resultado CON ESTADÍSTICAS DETALLADAS
             if gestiones_importadas > 0:
                 mensaje_resultado = f"✅ IMPORTACIÓN COMPLETADA EXITOSAMENTE\n\n"
@@ -1738,6 +1739,7 @@ class DatabaseManager:
             if resultados:
                 mensaje_final += f"\nÚltimos resultados:\n" + "\n".join(resultados[-10:])
             
+            self.sync_to_drive()
             return archivos_procesados > 0, mensaje_final
             
         except Exception as e:
@@ -1811,6 +1813,7 @@ class DatabaseManager:
             conn.commit()
             conn.close()
             
+            self.sync_to_drive()
             return True, f"{registros_insertados} registros cargados"
             
         except Exception as e:
@@ -1954,6 +1957,7 @@ class DatabaseManager:
             if resultados:
                 mensaje_final += f"\nResultados:\n" + "\n".join(resultados[-10:])
             
+            self.sync_to_drive()
             return archivos_nuevos > 0, mensaje_final
             
         except Exception as e:
