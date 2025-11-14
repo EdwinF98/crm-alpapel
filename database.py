@@ -3,6 +3,11 @@ import pandas as pd
 from datetime import datetime, timedelta
 import os
 import traceback
+import streamlit as st
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
+import io
 
 class DatabaseManager:
     def __init__(self):
@@ -15,36 +20,193 @@ class DatabaseManager:
         self.current_user = user_data
     
     def get_database_path(self):
-        # ✅ USAR RUTA ABSOLUTA FIJA en lugar de relativa
-        import streamlit as st
-        try:
-            # Intentar obtener el directorio de trabajo persistente
-            if hasattr(st, 'session_state') and 'db_absolute_path' in st.session_state:
-                return st.session_state.db_absolute_path
-        except:
-            pass
-        
-        # Opción 1: Directorio del usuario (persistente)
+        """Usa Google Drive con credentials.json para persistencia real"""
         import os
-        home_dir = os.path.expanduser("~")
-        db_dir = os.path.join(home_dir, "cartera_crm_data")
         
-        # Crear directorio si no existe
-        if not os.path.exists(db_dir):
-            os.makedirs(db_dir)
+        # ✅ CONFIGURACIÓN - CAMBIA ESTOS VALORES
+        CREDENTIALS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "credentials.json")
+        DRIVE_FOLDER_ID = "1G8EcHjHrjM5m_BqU3GOkgtG8F_lJifnS"  # ⬅️ ID de la carpeta en Google Drive
+        DRIVE_DB_NAME = "cartera_crm.db"
         
-        db_path = os.path.join(db_dir, "cartera_crm.db")
-        print(f"📍 BASE DE DATOS PERSISTENTE EN: {db_path}")
+        # Verificar que credentials.json existe
+        if not os.path.exists(CREDENTIALS_PATH):
+            print("❌ credentials.json no encontrado. Usando SQLite local.")
+            return self.get_fallback_db_path()
         
-        # Guardar en session_state para reutilizar
         try:
+            print("🔑 Conectando a Google Drive...")
+            
+            # Crear servicio de Google Drive
+            credentials = service_account.Credentials.from_service_account_file(
+                CREDENTIALS_PATH, 
+                scopes=['https://www.googleapis.com/auth/drive.file']
+            )
+            drive_service = build('drive', 'v3', credentials=credentials)
+            
+            # ✅ BUSCAR ARCHIVO EXISTENTE EN GOOGLE DRIVE
+            query = f"name='{DRIVE_DB_NAME}' and '{DRIVE_FOLDER_ID}' in parents and trashed=false"
+            results = drive_service.files().list(q=query, spaces='drive', fields='files(id, name)').execute()
+            files = results.get('files', [])
+            
+            # Ruta local temporal para trabajar con la BD
+            local_db_path = os.path.join(os.path.dirname(__file__), "temp_cartera_crm.db")
+            
+            if files:
+                # ✅ DESCARGAR BD EXISTENTE DE GOOGLE DRIVE
+                print("📥 Descargando base de datos desde Google Drive...")
+                file_id = files[0]['id']
+                
+                request = drive_service.files().get_media(fileId=file_id)
+                fh = io.BytesIO()
+                downloader = MediaIoBaseDownload(fh, request)
+                done = False
+                while done is False:
+                    status, done = downloader.next_chunk()
+                
+                # Guardar localmente
+                with open(local_db_path, 'wb') as f:
+                    f.write(fh.getvalue())
+                    
+                print(f"✅ Base de datos descargada: {local_db_path}")
+                
+            else:
+                # ✅ CREAR NUEVA BD EN GOOGLE DRIVE
+                print("🆕 Creando nueva base de datos en Google Drive...")
+                
+                # Crear BD local vacía primero
+                self.create_empty_database(local_db_path)
+                
+                # Subir a Google Drive
+                file_metadata = {
+                    'name': DRIVE_DB_NAME,
+                    'parents': [DRIVE_FOLDER_ID]
+                }
+                media = MediaFileUpload(local_db_path, resumable=True)
+                file = drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+                
+                print(f"✅ Nueva base de datos creada en Google Drive. ID: {file.get('id')}")
+            
+            # ✅ CONFIGURAR SYNC AUTOMÁTICO
             if hasattr(st, 'session_state'):
-                st.session_state.db_absolute_path = db_path
-        except:
-            pass
-        
-        return db_path
+                st.session_state.drive_service = drive_service
+                st.session_state.drive_file_id = files[0]['id'] if files else file.get('id')
+                st.session_state.local_db_path = local_db_path
+            
+            print(f"📍 Trabajando con: {local_db_path} (sincronizado con Google Drive)")
+            return local_db_path
+            
+        except Exception as e:
+            print(f"❌ Error con Google Drive: {e}")
+            return self.get_fallback_db_path()
     
+    def get_fallback_db_path(self):
+        """Fallback a SQLite local si Google Drive falla"""
+        import os
+        fallback_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cartera_crm_local.db")
+        print(f"📍 Fallback a BD local: {fallback_path}")
+        return fallback_path
+    
+    def create_empty_database(self, db_path):
+        """Crea una base de datos vacía con la estructura necesaria"""
+        import sqlite3
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # Crear tabla de usuarios
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS usuarios (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                nombre_completo TEXT NOT NULL,
+                rol TEXT NOT NULL DEFAULT 'comercial',
+                vendedor_asignado TEXT,
+                activo INTEGER DEFAULT 1
+            )
+        ''')
+        
+        # Insertar usuario admin por defecto
+        from auth import UserManager
+        user_manager = UserManager(db_path)
+        default_password = user_manager.hash_password("12345678")
+        
+        cursor.execute('''
+            INSERT OR IGNORE INTO usuarios 
+            (email, password_hash, nombre_completo, rol, activo)
+            VALUES (?, ?, ?, ?, 1)
+        ''', ('cartera@alpapel.com', default_password, 'Administrador Principal', 'admin'))
+        
+        # Crear el resto de tablas (tu estructura actual)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS vendedores (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nombre_vendedor TEXT UNIQUE
+            )
+        ''')
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS clientes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nit_cliente TEXT UNIQUE,
+                razon_social TEXT,
+                telefono TEXT,
+                celular TEXT,
+                direccion TEXT,
+                email TEXT,
+                ciudad TEXT,
+                vendedor_asignado TEXT,
+                estado_cupo TEXT DEFAULT 'activo',
+                fecha_registro DATE DEFAULT CURRENT_DATE
+            )
+        ''')
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS cartera_actual (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nit_cliente TEXT,
+                razon_social_cliente TEXT,
+                nombre_vendedor TEXT,
+                centro_operacion TEXT,
+                nro_factura TEXT,
+                total_cop REAL,
+                fecha_emision DATE,
+                fecha_vencimiento DATE,
+                condicion_pago TEXT,
+                dias_vencidos INTEGER,
+                dias_gracia INTEGER,
+                fecha_carga DATE DEFAULT CURRENT_DATE
+            )
+        ''')
+        
+        # ... (AGREGA AQUÍ TODAS LAS DEMÁS TABLAS DE TU init_database ACTUAL)
+        
+        conn.commit()
+        conn.close()
+        print(f"✅ Base de datos vacía creada: {db_path}")
+
+    def sync_to_drive(self):
+        """Sincroniza la base de datos local con Google Drive"""
+        try:
+            if hasattr(st, 'session_state') and hasattr(st.session_state, 'drive_service'):
+                drive_service = st.session_state.drive_service
+                file_id = st.session_state.drive_file_id
+                local_path = st.session_state.local_db_path
+                
+                if drive_service and file_id and local_path and os.path.exists(local_path):
+                    print("🔄 Sincronizando con Google Drive...")
+                    
+                    media = MediaFileUpload(local_path, resumable=True)
+                    updated_file = drive_service.files().update(
+                        fileId=file_id,
+                        media_body=media
+                    ).execute()
+                    
+                    print("✅ Sincronización completada")
+                    return True
+        except Exception as e:
+            print(f"❌ Error en sincronización: {e}")
+        return False
+
     def init_database(self):
         """Inicializa la base de datos con todas las tablas necesarias"""
         conn = sqlite3.connect(self.db_path)
@@ -337,6 +499,8 @@ class DatabaseManager:
             
             conn.commit()
             conn.close()
+            self.sync_to_drive()
+            
             return True, f"Cartera cargada exitosamente. {len(df)} registros procesados."
             
         except Exception as e:
@@ -613,6 +777,8 @@ class DatabaseManager:
         
         conn.commit()
         conn.close()
+        self.sync_to_drive()
+        
         return True
     
     def obtener_gestiones_cliente(self, nit_cliente):
