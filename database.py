@@ -15,9 +15,10 @@ class DatabaseManager:
         self.current_user = user_data
     
     def get_database_path(self):
-        """Obtiene la ruta de la base de datos en la carpeta de ejecución"""
         base_dir = os.path.dirname(os.path.abspath(__file__))
-        return os.path.join(base_dir, "cartera_crm.db")
+        path = os.path.join(base_dir, "cartera_crm.db")
+        print(f"📍 BASE DE DATOS EN: {path}") 
+        return path
     
     def init_database(self):
         """Inicializa la base de datos con todas las tablas necesarias"""
