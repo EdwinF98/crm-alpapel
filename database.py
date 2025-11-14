@@ -3,7 +3,6 @@ import pandas as pd
 from datetime import datetime, timedelta
 import os
 import traceback
-from auth import UserManager
 
 class DatabaseManager:
     def __init__(self):
@@ -1775,7 +1774,7 @@ class DatabaseManager:
     def autenticar_usuario(self, email, password, ip_address="", user_agent=""):
         """Método de compatibilidad - delega a UserManager"""
         try:
-            from auth import UserManager  # Import aquí para evitar circular
+            from auth import UserManager  # Import DENTRO de la función
             user_manager = UserManager(self.db_path)
             return user_manager.autenticar_usuario(email, password, ip_address, user_agent)
         except Exception as e:
@@ -1785,7 +1784,7 @@ class DatabaseManager:
     def obtener_usuarios(self):
         """Obtiene todos los usuarios"""
         try:
-            from auth import UserManager
+            from auth import UserManager  # Import DENTRO de la función
             user_manager = UserManager(self.db_path)
             return user_manager.obtener_usuarios()
         except Exception as e:
@@ -1795,7 +1794,7 @@ class DatabaseManager:
     def crear_usuario(self, email, nombre_completo, rol, vendedor_asignado=None, activo=True):
         """Crea un nuevo usuario"""
         try:
-            from auth import UserManager
+            from auth import UserManager  # Import DENTRO de la función
             user_manager = UserManager(self.db_path)
             return user_manager.crear_usuario(email, nombre_completo, rol, vendedor_asignado, activo)
         except Exception as e:
@@ -1804,7 +1803,7 @@ class DatabaseManager:
     def actualizar_usuario(self, user_id, datos):
         """Actualiza un usuario"""
         try:
-            from auth import UserManager
+            from auth import UserManager  # Import DENTRO de la función
             user_manager = UserManager(self.db_path)
             return user_manager.actualizar_usuario(user_id, datos)
         except Exception as e:
@@ -1813,7 +1812,7 @@ class DatabaseManager:
     def cambiar_password(self, user_id, nueva_password):
         """Cambia contraseña de usuario"""
         try:
-            from auth import UserManager
+            from auth import UserManager  # Import DENTRO de la función
             user_manager = UserManager(self.db_path)
             return user_manager.cambiar_password(user_id, nueva_password)
         except Exception as e:
@@ -1822,7 +1821,7 @@ class DatabaseManager:
     def eliminar_usuario(self, user_id):
         """Elimina un usuario"""
         try:
-            from auth import UserManager
+            from auth import UserManager  # Import DENTRO de la función
             user_manager = UserManager(self.db_path)
             return user_manager.eliminar_usuario(user_id)
         except Exception as e:
@@ -1831,7 +1830,7 @@ class DatabaseManager:
     def obtener_estadisticas_sistema(self):
         """Obtiene estadísticas del sistema"""
         try:
-            from auth import UserManager
+            from auth import UserManager  # Import DENTRO de la función
             user_manager = UserManager(self.db_path)
             return user_manager.obtener_estadisticas_sistema()
         except Exception as e:
@@ -1842,3 +1841,13 @@ class DatabaseManager:
                 'logins_hoy': 0,
                 'sesiones_activas': 1
             }
+
+    def obtener_vendedores(self):
+        """Obtiene todos los vendedores"""
+        try:
+            from auth import UserManager  # Import DENTRO de la función
+            user_manager = UserManager(self.db_path)
+            return user_manager.obtener_vendedores()
+        except Exception as e:
+            print(f"Error obteniendo vendedores: {e}")
+            return pd.DataFrame()
