@@ -13,6 +13,7 @@ from analisis_cartera_module import analisis_cartera_section
 from admin_module import admin_section
 from PIL import Image
 import base64
+import sqlite3
 
 warnings.filterwarnings('ignore', category=UserWarning)
 
@@ -59,9 +60,20 @@ def main():
         st.stop()
 
 def init_session_state():
-    """Inicializar el estado de la sesión con persistencia - VERSIÓN DEBUG"""
+    """Inicializar el estado de la sesión CON PERSISTENCIA DE BD"""
     print("=" * 50)
     print("🔍 DEBUG: init_session_state() INICIADO")
+    
+    # ✅ INICIALIZAR RUTA PERSISTENTE PRIMERO
+    import os
+    home_dir = os.path.expanduser("~")
+    db_dir = os.path.join(home_dir, "cartera_crm_data")
+    if not os.path.exists(db_dir):
+        os.makedirs(db_dir)
+    
+    db_path = os.path.join(db_dir, "cartera_crm.db")
+    st.session_state.db_absolute_path = db_path
+    print(f"📍 RUTA PERSISTENTE CONFIGURADA: {db_path}")
     
     # 1. Inicializar managers básicos
     if 'db' not in st.session_state:
@@ -213,7 +225,36 @@ def login_section():
                                 session_manager.save_session(user_data)
                                 
                                 st.success(f"✅ ¡Bienvenid@ {user_data['nombre_completo']}!")
-                                time.sleep(0.5)
+                                
+                                # ⬇️⬇️⬇️ AQUÍ VA EL CÓDIGO DE DEBUG ⬇️⬇️⬇️
+                                time.sleep(0.5)  # Pequeña pausa para ver los mensajes
+                                
+                                # ✅ DEBUG: Mostrar ruta de BD
+                                db_path = st.session_state.db.db_path
+                                st.info(f"🗂️ Base de datos en: `{db_path}`")
+                                
+                                # Verificar si el archivo existe
+                                if os.path.exists(db_path):
+                                    file_size = os.path.getsize(db_path)
+                                    st.info(f"📊 Tamaño archivo: {file_size} bytes")
+                                    
+                                    # Verificar tablas en la BD
+                                    try:
+                                        conn = sqlite3.connect(db_path)
+                                        cursor = conn.cursor()
+                                        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+                                        tables = cursor.fetchall()
+                                        conn.close()
+                                        st.info(f"📋 Tablas en BD: {len(tables)} tablas")
+                                        print(f"🔍 Tablas encontradas: {[table[0] for table in tables]}")
+                                    except Exception as e:
+                                        st.error(f"❌ Error verificando BD: {e}")
+                                else:
+                                    st.error("❌ ARCHIVO DE BD NO EXISTE en esa ruta!")
+                                
+                                time.sleep(2)  # Dar tiempo para leer los mensajes
+                                # ⬆️⬆️⬆️ FIN DEL CÓDIGO DEBUG ⬆️⬆️⬆️
+                                
                                 st.rerun()
                             else:
                                 st.error(f"❌ {message}")

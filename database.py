@@ -15,10 +15,35 @@ class DatabaseManager:
         self.current_user = user_data
     
     def get_database_path(self):
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        path = os.path.join(base_dir, "cartera_crm.db")
-        print(f"📍 BASE DE DATOS EN: {path}") 
-        return path
+        # ✅ USAR RUTA ABSOLUTA FIJA en lugar de relativa
+        import streamlit as st
+        try:
+            # Intentar obtener el directorio de trabajo persistente
+            if hasattr(st, 'session_state') and 'db_absolute_path' in st.session_state:
+                return st.session_state.db_absolute_path
+        except:
+            pass
+        
+        # Opción 1: Directorio del usuario (persistente)
+        import os
+        home_dir = os.path.expanduser("~")
+        db_dir = os.path.join(home_dir, "cartera_crm_data")
+        
+        # Crear directorio si no existe
+        if not os.path.exists(db_dir):
+            os.makedirs(db_dir)
+        
+        db_path = os.path.join(db_dir, "cartera_crm.db")
+        print(f"📍 BASE DE DATOS PERSISTENTE EN: {db_path}")
+        
+        # Guardar en session_state para reutilizar
+        try:
+            if hasattr(st, 'session_state'):
+                st.session_state.db_absolute_path = db_path
+        except:
+            pass
+        
+        return db_path
     
     def init_database(self):
         """Inicializa la base de datos con todas las tablas necesarias"""
