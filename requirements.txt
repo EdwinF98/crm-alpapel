@@ -12,4 +12,4 @@ google-auth-httplib2
 google-auth-oauthlib
 python-docx
 docxtpl
-docx2pdf
+fpdf2
