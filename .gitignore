@@ -1,0 +1,27 @@
+﻿# CREDENCIALES Y ARCHIVOS SENSIBLES
+credentials.json
+*.json
+.env
+.env.local
+
+# BASE DE DATOS
+*.db
+*.sqlite3
+cartera_crm.db
+
+# ARCHIVOS TEMPORALES Y EXCEL
+temp_*.xlsx
+*.xlsx
+
+# ENTORNO VIRTUAL
+streamlit_env/
+
+# CACHE DE PYTHON
+__pycache__/
+*.pyc
+*.pyo
+
+# ARCHIVOS DE SISTEMA
+.DS_Store
+Thumbs.db
+desktop.ini

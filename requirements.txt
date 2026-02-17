@@ -1,0 +1,15 @@
+streamlit
+pandas
+numpy
+plotly
+Pillow
+reportlab
+openpyxl
+xlsxwriter
+matplotlib
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib
+python-docx
+docxtpl
+docx2pdf
