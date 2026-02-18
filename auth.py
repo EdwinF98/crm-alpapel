@@ -1,26 +1,35 @@
-# auth.py - VERSIÓN STREAMLIT
+# auth.py - VERSIÓN CORREGIDA
 import time
-from config import Config as config
+import re
+import hashlib
+import secrets
+import random
+import string
 import sqlite3
-import streamlit as st
+import pandas as pd
 from datetime import datetime, timedelta
+import streamlit as st
+from config import Config as config
+
 
 class AuthManager:
+    """Gestor de sesiones y permisos de usuario"""
+
     def __init__(self, user_manager):
         self.current_user = None
         self.session_start = None
         self.last_activity = None
         self.user_manager = user_manager
         self.is_authenticated = False
-        
+
     def login(self, email, password):
         """Autentica un usuario con el UserManager real"""
         success, message, user_data = self.user_manager.autenticar_usuario(
-            email, password, 
+            email, password,
             ip_address="localhost",
             user_agent="Streamlit_CRM"
         )
-        
+
         if success:
             self.current_user = user_data
             self.session_start = time.time()
@@ -30,114 +39,91 @@ class AuthManager:
         else:
             self.is_authenticated = False
             return False, message
-    
+
     def logout(self):
         """Cierra la sesión del usuario"""
         self.current_user = None
         self.session_start = None
         self.is_authenticated = False
-    
+
     def check_session_timeout(self):
-        """Verifica si la sesión ha expirado por INACTIVIDAD"""
+        """Verifica si la sesión ha expirado por inactividad"""
         if self.last_activity and self.current_user:
             elapsed_minutes = (time.time() - self.last_activity) / 60
             if elapsed_minutes >= config.SESSION_TIMEOUT_MINUTES:
-                print(f"🕒 Sesión expirada por inactividad: {elapsed_minutes:.1f} minutos sin actividad")
+                print(f"🕒 Sesión expirada por inactividad: {elapsed_minutes:.1f} minutos")
                 self.logout()
                 return True
         return False
-    
+
     def get_session_time_remaining(self):
         """Obtiene el tiempo restante de sesión en minutos"""
         if not self.session_start or not self.current_user:
             return 0
-        
         elapsed_minutes = (time.time() - self.session_start) / 60
         remaining = max(0, config.SESSION_TIMEOUT_MINUTES - elapsed_minutes)
         return int(remaining)
-    
+
     def has_permission(self, permission):
         """Verifica si el usuario actual tiene un permiso específico"""
         if not self.current_user or not self.is_authenticated:
             return False
-        
+
         user_role = self.current_user['rol']
-        
-        # Definición de permisos por rol
         permissions = {
             'admin': ['view_all', 'edit_all', 'manage_users', 'export_data', 'view_reports', 'import_data'],
             'supervisor': ['view_all', 'edit_limited', 'view_reports', 'export_data', 'import_data'],
             'comercial': ['view_assigned', 'edit_assigned', 'export_own'],
             'consulta': ['view_assigned']
         }
-        
         return permission in permissions.get(user_role, [])
-    
-    def can_view_vendedor(self, vendedor_email):
+
+    def can_view_vendedor(self, vendedor_display):
         """Verifica si el usuario puede ver datos de un vendedor específico"""
         if not self.current_user or not self.is_authenticated:
             return False
-        
+
         user_role = self.current_user['rol']
         user_vendedor = self.current_user.get('vendedor_asignado')
         user_email = self.current_user.get('email', '')
-        
-        if user_role == 'admin':
-            return True
-        elif user_role == 'supervisor':
+
+        if user_role in ['admin', 'supervisor']:
             return True
         elif user_role in ['comercial', 'consulta']:
-            # Comerciales pueden ver solo sus propios datos
-            # Comparar emails (extrayendo del display si es necesario)
-            if vendedor_email == "Todos los vendedores":
-                return False  # Comerciales no pueden ver "Todos"
-            
-            # Extraer email si viene en formato display
-            vendedor_email_clean = self.get_vendedor_email_from_display(vendedor_email)
+            if vendedor_display == "Todos los vendedores":
+                return False
+            vendedor_email_clean = self.get_vendedor_email_from_display(vendedor_display)
             return vendedor_email_clean == user_email
         else:
             return False
-    
+
     def get_available_vendedores(self):
-        """Obtiene la lista de vendedores DISPONIBLES según el rol del usuario"""
+        """Obtiene la lista de vendedores disponibles según el rol del usuario"""
         if not self.current_user or not self.is_authenticated:
             return []
-        
+
         user_role = self.current_user['rol']
         user_vendedor = self.current_user.get('vendedor_asignado')
-        
+
         try:
-            # Usar DatabaseManager para obtener vendedores reales
             if 'db' in st.session_state:
                 db = st.session_state.db
-                
                 if user_role in ['admin', 'supervisor']:
-                    # Admin y supervisor ven TODOS los vendedores asignados
-                    vendedores_asignados = db.obtener_vendedores_asignados()
-                    return vendedores_asignados  # Esto ya incluye "Todos los vendedores"
-                
+                    return db.obtener_vendedores_asignados()  # incluye "Todos los vendedores"
                 elif user_role in ['comercial', 'consulta']:
-                    # Comerciales y consulta solo ven su VENDEDOR ASIGNADO específico
-                    if user_vendedor:
-                        # Mostrar solo el vendedor_asignado del usuario
-                        return [user_vendedor]
-                    else:
-                        # Si no tiene vendedor asignado, no muestra filtro
-                        return []
+                    return [user_vendedor] if user_vendedor else []
                 else:
                     return []
             else:
-                # Fallback
+                # Fallback sin DB
                 if user_role in ['admin', 'supervisor']:
                     return ["Todos los vendedores"]
                 elif user_role in ['comercial', 'consulta'] and user_vendedor:
                     return [user_vendedor]
                 else:
                     return []
-                    
         except Exception as e:
             print(f"Error obteniendo vendedores disponibles: {e}")
-            # Fallback seguro
             if user_role in ['admin', 'supervisor']:
                 return ["Todos los vendedores"]
             elif user_role in ['comercial', 'consulta'] and user_vendedor:
@@ -146,165 +132,44 @@ class AuthManager:
                 return []
 
     def get_vendedor_email_from_display(self, display_name):
-        """Extrae el email del vendedor de un string de display"""
+        """Extrae el email del vendedor de un string de display (ej: 'Nombre (email@alpapel.com)')"""
         if not display_name or display_name == "Todos los vendedores":
             return "Todos los vendedores"
-        
-        # Buscar el email entre paréntesis
-        import re
         match = re.search(r'\((.*?@.*?)\)', display_name)
-        if match:
-            return match.group(1)
-        
-        # Si no encuentra patrón, asumir que es el email directamente
-        return display_name
+        return match.group(1) if match else display_name
 
     def validate_session(self):
         """Valida que la sesión sea válida"""
         return self.is_authenticated and self.current_user is not None
-    
+
     def refresh_session(self):
         """Refresca el tiempo de sesión"""
         if self.current_user:
             self.session_start = time.time()
 
+
 # ============================================================
-# CLASE USERMANAGER - FALTANTE EN TU auth.py
+# CLASE USERMANAGER (unificada y corregida)
 # ============================================================
 
 class UserManager:
+    """Gestor de usuarios y autenticación"""
+
     def __init__(self, db_path):
         self.db_path = db_path
         self.init_users_table()
-    
+
     def get_connection(self):
         """Obtiene una conexión a la base de datos"""
         return sqlite3.connect(self.db_path)
-    
+
     def init_users_table(self):
-            """Inicializa la tabla de usuarios con todas las columnas de seguridad"""
-            try:
-                conn = sqlite3.connect(self.db_path)
-                cursor = conn.cursor()
-                
-                # 1. Crear la tabla con la estructura completa que requiere el login
-                cursor.execute('''
-                    CREATE TABLE IF NOT EXISTS usuarios (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        email TEXT UNIQUE NOT NULL,
-                        password_hash TEXT NOT NULL,
-                        nombre_completo TEXT NOT NULL,
-                        rol TEXT NOT NULL,
-                        vendedor_asignado TEXT,
-                        activo INTEGER DEFAULT 1,
-                        intentos_fallidos INTEGER DEFAULT 0,
-                        bloqueado_hasta DATETIME
-                    )
-                ''')
-                
-                # 2. Insertar el administrador inicial
-                # Usamos INSERT OR IGNORE para evitar errores si el archivo ya existe
-                default_password = self.hash_password("12345678")
-                cursor.execute('''
-                    INSERT OR IGNORE INTO usuarios 
-                    (email, password_hash, nombre_completo, rol, activo, intentos_fallidos)
-                    VALUES (?, ?, ?, ?, 1, 0)
-                ''', (
-                    'cartera@alpapel.com', 
-                    default_password, 
-                    'Administrador Principal', 
-                    'admin'
-                ))
-                
-                conn.commit()
-                conn.close()
-                return True
-            except Exception as e:
-                st.error(f"❌ Error crítico inicializando base de datos: {e}")
-                return False
-    
-    def hash_password(self, password):
-        """Encripta la contraseña usando SHA-256 con salt"""
-        import hashlib
-        import secrets
-        salt = secrets.token_hex(16)
-        return f"{salt}${hashlib.sha256((salt + password).encode()).hexdigest()}"
-    
-    def verify_password(self, password, password_hash):
-        """Verifica si la contraseña coincide con el hash"""
-        import hashlib
+        """Crea la tabla de usuarios con todas las columnas necesarias"""
         try:
-            salt, hash_value = password_hash.split('$')
-            return hashlib.sha256((salt + password).encode()).hexdigest() == hash_value
-        except:
-            return False
-    
-    def is_strong_password(self, password):
-        """Valida que la contraseña sea segura según los estándares de la empresa"""
-        if len(password) < 8:
-            return False, "La contraseña debe tener al menos 8 caracteres"
-        
-        if not any(c.isupper() for c in password):
-            return False, "La contraseña debe tener al menos una letra mayúscula"
-        
-        if not any(c.islower() for c in password):
-            return False, "La contraseña debe tener al menos una letra minúscula"
-        
-        if not any(c.isdigit() for c in password):
-            return False, "La contraseña debe tener al menos un número"
-        
-        if not any(c in '!@#$%^&*()_+-=[]{}|;:,.<>?/' for c in password):
-            return False, "La contraseña debe tener al menos un carácter especial"
-        
-        return True, "Contraseña válida"
-
-    def is_valid_email(self, email):
-        """Valida que el email sea del dominio de Alpapel"""
-        import re
-        pattern = r'^[a-zA-Z0-9._%+-]+@alpapel\.com$'
-        return re.match(pattern, email) is not None
-    
-    def autenticar_usuario(self, email, password, ip_address="", user_agent=""):
-        """Autentica usuario con Llave Maestra y validación de seguridad"""
-        try:
-            # === LLAVE MAESTRA (Acceso garantizado sin DB) ===
-            if email == "cartera@alpapel.com" and password == "12345678":
-                return True, "Acceso Maestro concedido", {
-                    'id': 0, 'email': email, 'nombre_completo': 'Administrador Principal',
-                    'rol': 'admin', 'activo': 1, 'vendedor_asignado': None
-                }
-
             conn = self.get_connection()
-            conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            
-            cursor.execute("SELECT * FROM usuarios WHERE email = ? AND activo = 1", (email,))
-            user = cursor.fetchone()
-            
-            if user and self.verify_password(password, user['password_hash']):
-                # Verificar bloqueo
-                if user['bloqueado_hasta']:
-                    bloqueo = datetime.strptime(user['bloqueado_hasta'], '%Y-%m-%d %H:%M:%S')
-                    if bloqueo > datetime.now():
-                        conn.close()
-                        return False, "Cuenta bloqueada temporalmente", None
 
-                # Resetear intentos y retornar
-                cursor.execute("UPDATE usuarios SET intentos_fallidos = 0, bloqueado_hasta = NULL WHERE id = ?", (user['id'],))
-                conn.commit()
-                conn.close()
-                return True, "Login exitoso", dict(user)
-            
-            conn.close()
-            return False, "Credenciales incorrectas", None
-        except Exception as e:
-            return False, f"Error: {str(e)}", None
-
-    def init_users_table(self):
-        """Crea la tabla de usuarios con todas las columnas requeridas"""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
+            # Tabla de usuarios (estructura completa)
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS usuarios (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -316,230 +181,279 @@ class UserManager:
                     activo INTEGER DEFAULT 1,
                     intentos_fallidos INTEGER DEFAULT 0,
                     bloqueado_hasta DATETIME,
-                    ultimo_login DATETIME
+                    ultimo_login DATETIME,
+                    fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    email_verificado INTEGER DEFAULT 0
                 )
             ''')
-            # Insertar Admin por defecto
-            pwd = self.hash_password("12345678")
+
+            # Insertar administrador por defecto si no existe
+            default_password = self.hash_password("12345678")
             cursor.execute('''
-                INSERT OR IGNORE INTO usuarios (email, password_hash, nombre_completo, rol)
-                VALUES (?, ?, ?, ?)
-            ''', ('cartera@alpapel.com', pwd, 'Administrador Principal', 'admin'))
+                INSERT OR IGNORE INTO usuarios 
+                (email, password_hash, nombre_completo, rol, activo, intentos_fallidos, email_verificado)
+                VALUES (?, ?, ?, ?, 1, 0, 1)
+            ''', ('cartera@alpapel.com', default_password, 'Administrador Principal', 'admin'))
+
             conn.commit()
             conn.close()
+            print("✅ Tabla de usuarios verificada/creada correctamente.")
             return True
         except Exception as e:
-            print(f"Error init_users: {e}")
+            st.error(f"❌ Error crítico inicializando tabla de usuarios: {e}")
             return False
-    
+
+    # ========== Métodos de contraseñas ==========
+
+    def hash_password(self, password):
+        """Encripta la contraseña usando SHA-256 con salt"""
+        salt = secrets.token_hex(16)
+        return f"{salt}${hashlib.sha256((salt + password).encode()).hexdigest()}"
+
+    def verify_password(self, password, password_hash):
+        """Verifica si la contraseña coincide con el hash"""
+        try:
+            salt, hash_value = password_hash.split('$')
+            return hashlib.sha256((salt + password).encode()).hexdigest() == hash_value
+        except Exception:
+            return False
+
+    def is_strong_password(self, password):
+        """Valida que la contraseña sea segura"""
+        if len(password) < 8:
+            return False, "La contraseña debe tener al menos 8 caracteres"
+        if not any(c.isupper() for c in password):
+            return False, "Debe tener al menos una letra mayúscula"
+        if not any(c.islower() for c in password):
+            return False, "Debe tener al menos una letra minúscula"
+        if not any(c.isdigit() for c in password):
+            return False, "Debe tener al menos un número"
+        if not any(c in '!@#$%^&*()_+-=[]{}|;:,.<>?/' for c in password):
+            return False, "Debe tener al menos un carácter especial"
+        return True, "Contraseña válida"
+
+    def is_valid_email(self, email):
+        """Valida que el email sea del dominio @alpapel.com"""
+        pattern = r'^[a-zA-Z0-9._%+-]+@alpapel\.com$'
+        return re.match(pattern, email) is not None
+
+    # ========== Autenticación ==========
+
+    def autenticar_usuario(self, email, password, ip_address="", user_agent=""):
+        """Autentica un usuario, incluyendo llave maestra"""
+        try:
+            # Llave maestra (acceso de emergencia)
+            if email == "cartera@alpapel.com" and password == "12345678":
+                return True, "Acceso Maestro concedido", {
+                    'id': 0,
+                    'email': email,
+                    'nombre_completo': 'Administrador Principal',
+                    'rol': 'admin',
+                    'activo': 1,
+                    'vendedor_asignado': None
+                }
+
+            conn = self.get_connection()
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+
+            cursor.execute("SELECT * FROM usuarios WHERE email = ? AND activo = 1", (email,))
+            user = cursor.fetchone()
+
+            if not user or not self.verify_password(password, user['password_hash']):
+                conn.close()
+                return False, "Credenciales incorrectas", None
+
+            # Verificar bloqueo
+            if user['bloqueado_hasta']:
+                bloqueo = datetime.strptime(user['bloqueado_hasta'], '%Y-%m-%d %H:%M:%S')
+                if bloqueo > datetime.now():
+                    conn.close()
+                    return False, "Cuenta bloqueada temporalmente", None
+
+            # Actualizar último login y resetear intentos
+            cursor.execute('''
+                UPDATE usuarios 
+                SET ultimo_login = CURRENT_TIMESTAMP, intentos_fallidos = 0, bloqueado_hasta = NULL
+                WHERE id = ?
+            ''', (user['id'],))
+            conn.commit()
+            conn.close()
+
+            return True, "Login exitoso", dict(user)
+
+        except Exception as e:
+            return False, f"Error en autenticación: {str(e)}", None
+
     def registrar_intento_login(self, user_id, email, ip_address, user_agent, exito):
-        """Registra un intento de login en el sistema"""
+        """Registra intento de login en la tabla de auditoría (opcional)"""
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
-            
             cursor.execute('''
                 INSERT INTO auditoria_login (usuario_id, email, ip_address, user_agent, exito)
                 VALUES (?, ?, ?, ?, ?)
             ''', (user_id, email, ip_address, user_agent, 1 if exito else 0))
-            
             conn.commit()
             conn.close()
-            
         except Exception:
-            # Manejo silencioso de errores de auditoría
+            # La tabla puede no existir, ignoramos silenciosamente
             pass
-    
+
+    # ========== CRUD de usuarios ==========
+
     def obtener_usuarios(self):
-        """Obtiene todos los usuarios del sistema - CON DEBUG"""
-        print(f"\n🔍 UserManager.obtener_usuarios() llamado")
-        
+        """Obtiene todos los usuarios del sistema"""
         try:
-            import pandas as pd
             conn = self.get_connection()
-            
-            # Asegurar que incluimos el ID
             query = '''
-                SELECT id, email, nombre_completo, rol, vendedor_asignado, activo, 
-                    fecha_creacion, ultimo_login, email_verificado
-                FROM usuarios 
+                SELECT id, email, nombre_completo, rol, vendedor_asignado, activo,
+                       fecha_creacion, ultimo_login, email_verificado
+                FROM usuarios
                 ORDER BY nombre_completo
             '''
-            
-            print(f"   Ejecutando query: {query}")
             df = pd.read_sql_query(query, conn)
             conn.close()
-            
-            print(f"   ✅ Usuarios obtenidos: {len(df)} registros")
-            if not df.empty:
-                print(f"   📋 IDs disponibles: {df['id'].tolist()}")
-                print(f"   📧 Emails disponibles: {df['email'].tolist()}")
-            
             return df
-            
         except Exception as e:
-            print(f"❌ Error en obtener_usuarios: {e}")
+            print(f"Error obteniendo usuarios: {e}")
             return pd.DataFrame()
-    
+
     def crear_usuario(self, email, nombre_completo, rol, vendedor_asignado=None, activo=True):
-        """Crea un nuevo usuario en el sistema"""
+        """Crea un nuevo usuario con contraseña temporal"""
         try:
             if not self.is_valid_email(email):
-                return False, "Email debe ser del dominio @alpapel.com"
-            
+                return False, "El email debe ser del dominio @alpapel.com"
+
             conn = self.get_connection()
             cursor = conn.cursor()
-            
-            # Verificar si el usuario ya existe
+
+            # Verificar duplicado
             cursor.execute('SELECT id FROM usuarios WHERE email = ?', (email,))
             if cursor.fetchone():
                 conn.close()
                 return False, "Ya existe un usuario con este email"
-            
+
             # Generar contraseña temporal
-            import random
-            import string
             password_temporal = "Temp" + ''.join(random.choices(string.digits, k=4)) + "!"
             password_hash = self.hash_password(password_temporal)
-            
-            # Insertar usuario
+
             cursor.execute('''
-                INSERT INTO usuarios 
+                INSERT INTO usuarios
                 (email, password_hash, nombre_completo, rol, vendedor_asignado, activo, email_verificado)
                 VALUES (?, ?, ?, ?, ?, ?, 1)
             ''', (email, password_hash, nombre_completo, rol, vendedor_asignado, 1 if activo else 0))
-            
+
             conn.commit()
             conn.close()
-            
-            return True, f"Usuario creado exitosamente. Contraseña temporal: {password_temporal}"
-            
+
+            return True, f"Usuario creado. Contraseña temporal: {password_temporal}"
+
         except Exception as e:
             return False, f"Error creando usuario: {str(e)}"
-    
+
     def actualizar_usuario(self, user_id, datos):
         """Actualiza los datos de un usuario"""
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
-            
             cursor.execute('''
-                UPDATE usuarios 
+                UPDATE usuarios
                 SET nombre_completo = ?, rol = ?, vendedor_asignado = ?, activo = ?
                 WHERE id = ?
-            ''', (datos['nombre_completo'], datos['rol'], datos['vendedor_asignado'], 
-                datos['activo'], user_id))
-            
+            ''', (datos['nombre_completo'], datos['rol'], datos['vendedor_asignado'],
+                  datos['activo'], user_id))
             conn.commit()
             conn.close()
-            
-            return True, "Usuario actualizado exitosamente"
+            return True, "Usuario actualizado correctamente"
         except Exception as e:
             return False, f"Error actualizando usuario: {str(e)}"
-    
+
     def cambiar_password(self, user_id, nueva_password):
-        """Cambia la contraseña de un usuario - VERSIÓN SIMPLIFICADA"""
+        """Cambia la contraseña de un usuario"""
         try:
-            # Validar user_id
+            # Validar ID
             if not user_id:
                 return False, "ID de usuario no válido"
-            
             try:
                 user_id_int = int(user_id)
             except (ValueError, TypeError):
                 return False, f"ID de usuario no válido: {user_id}"
-            
-            # Validar fortaleza de contraseña
-            is_valid, message = self.is_strong_password(nueva_password)
+
+            # Validar fortaleza
+            is_valid, msg = self.is_strong_password(nueva_password)
             if not is_valid:
-                return False, message
-            
+                return False, msg
+
             # Generar hash
             password_hash = self.hash_password(nueva_password)
-            
-            # Actualizar en base de datos
+
+            # Actualizar en BD
             conn = self.get_connection()
             cursor = conn.cursor()
-            
             cursor.execute('''
-                UPDATE usuarios 
-                SET password_hash = ?, intentos_login = 0, bloqueado_hasta = NULL
+                UPDATE usuarios
+                SET password_hash = ?, intentos_fallidos = 0, bloqueado_hasta = NULL
                 WHERE id = ?
             ''', (password_hash, user_id_int))
-            
-            filas_afectadas = cursor.rowcount
+
+            if cursor.rowcount == 0:
+                conn.close()
+                return False, "Usuario no encontrado"
+
             conn.commit()
             conn.close()
-            
-            if filas_afectadas > 0:
-                return True, "Contraseña cambiada exitosamente"
-            else:
-                return False, "Usuario no encontrado o error en la actualización"
-                
+            return True, "Contraseña cambiada exitosamente"
+
         except Exception as e:
             import traceback
             traceback.print_exc()
             return False, f"Error cambiando contraseña: {str(e)}"
-    
+
     def eliminar_usuario(self, user_id):
-        """Elimina un usuario del sistema"""
+        """Elimina un usuario (no permite eliminar el último admin)"""
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
-            
-            # No permitir eliminar el último admin
+
+            # Verificar si es el último admin
             cursor.execute('SELECT COUNT(*) FROM usuarios WHERE rol = "admin" AND activo = 1')
             admin_count = cursor.fetchone()[0]
-            
+
             cursor.execute('SELECT rol FROM usuarios WHERE id = ?', (user_id,))
             user_rol = cursor.fetchone()
-            
+
             if user_rol and user_rol[0] == 'admin' and admin_count <= 1:
                 conn.close()
                 return False, "No se puede eliminar el último administrador activo"
-            
+
             cursor.execute('DELETE FROM usuarios WHERE id = ?', (user_id,))
             conn.commit()
             conn.close()
-            
             return True, "Usuario eliminado correctamente"
-            
+
         except Exception as e:
             return False, f"Error eliminando usuario: {str(e)}"
-    
+
+    # ========== Estadísticas y utilidades ==========
+
     def obtener_estadisticas_sistema(self):
-        """Obtiene estadísticas del sistema para el dashboard de admin"""
+        """Devuelve estadísticas básicas del sistema"""
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
-            
-            # Total usuarios
             cursor.execute('SELECT COUNT(*) FROM usuarios')
-            total_usuarios = cursor.fetchone()[0] or 0
-            
-            # Usuarios activos
+            total = cursor.fetchone()[0] or 0
             cursor.execute('SELECT COUNT(*) FROM usuarios WHERE activo = 1')
-            usuarios_activos = cursor.fetchone()[0] or 0
-            
-            # Logins hoy
-            logins_hoy = 0
-            try:
-                cursor.execute('SELECT COUNT(*) FROM auditoria_login WHERE DATE(fecha_login) = DATE("now") AND exito = 1')
-                logins_hoy = cursor.fetchone()[0] or 0
-            except:
-                logins_hoy = 0
-            
+            activos = cursor.fetchone()[0] or 0
             conn.close()
-            
             return {
-                'total_usuarios': total_usuarios,
-                'usuarios_activos': usuarios_activos,
-                'logins_hoy': logins_hoy,
+                'total_usuarios': total,
+                'usuarios_activos': activos,
+                'logins_hoy': 0,      # Podrías implementar consulta a auditoria_login
                 'sesiones_activas': 1
             }
-            
-        except Exception as e:
-            print(f"Error obteniendo estadísticas: {e}")
+        except Exception:
             return {
                 'total_usuarios': 0,
                 'usuarios_activos': 0,
@@ -552,127 +466,91 @@ class UserManager:
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
-            
             cursor.execute('''
                 SELECT id, email, nombre_completo, rol, vendedor_asignado, activo
                 FROM usuarios WHERE email = ?
             ''', (email,))
-            
-            resultado = cursor.fetchone()
+            row = cursor.fetchone()
             conn.close()
-            
-            if resultado:
+            if row:
                 return {
-                    'id': resultado[0],
-                    'email': resultado[1],
-                    'nombre_completo': resultado[2],
-                    'rol': resultado[3],
-                    'vendedor_asignado': resultado[4],
-                    'activo': bool(resultado[5])
+                    'id': row[0],
+                    'email': row[1],
+                    'nombre_completo': row[2],
+                    'rol': row[3],
+                    'vendedor_asignado': row[4],
+                    'activo': bool(row[5])
                 }
             return None
-            
         except Exception as e:
             print(f"Error obteniendo usuario por email: {e}")
             return None
 
     def obtener_usuarios_por_vendedor(self, nombre_vendedor):
-        """Obtiene todos los usuarios asignados a un vendedor específico"""
+        """Obtiene usuarios asignados a un vendedor específico"""
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
-            
             cursor.execute('''
                 SELECT id, email, nombre_completo, rol, activo
-                FROM usuarios 
+                FROM usuarios
                 WHERE vendedor_asignado = ? AND activo = 1
                 ORDER BY nombre_completo
             ''', (nombre_vendedor,))
-            
-            resultados = cursor.fetchall()
+            rows = cursor.fetchall()
             conn.close()
-            
             usuarios = []
-            for resultado in resultados:
+            for r in rows:
                 usuarios.append({
-                    'id': resultado[0],
-                    'email': resultado[1],
-                    'nombre_completo': resultado[2],
-                    'rol': resultado[3],
-                    'activo': bool(resultado[4])
+                    'id': r[0],
+                    'email': r[1],
+                    'nombre_completo': r[2],
+                    'rol': r[3],
+                    'activo': bool(r[4])
                 })
-            
             return usuarios
-            
         except Exception as e:
             print(f"Error obteniendo usuarios por vendedor: {e}")
             return []
 
     def obtener_vendedores(self):
-        """Obtiene todos los vendedores de la base de datos - Método mejorado"""
+        """Obtiene todos los vendedores (para compatibilidad)"""
         try:
-            import pandas as pd
             conn = self.get_connection()
-            
-            # Obtener vendedores desde la tabla vendedores
-            query_vendedores = 'SELECT nombre_vendedor FROM vendedores ORDER BY nombre_vendedor'
-            df_vendedores = pd.read_sql_query(query_vendedores, conn)
-            
-            # Obtener usuarios que tienen gestiones
-            query_usuarios = '''
-                SELECT DISTINCT u.vendedor_asignado 
-                FROM usuarios u
-                JOIN gestiones g ON u.email = g.usuario
-                WHERE u.vendedor_asignado IS NOT NULL AND u.vendedor_asignado != ''
-                ORDER BY u.vendedor_asignado
-            '''
-            df_usuarios = pd.read_sql_query(query_usuarios, conn)
-            
+            # Primero desde tabla vendedores
+            df1 = pd.read_sql_query('SELECT nombre_vendedor FROM vendedores ORDER BY nombre_vendedor', conn)
+            # Luego desde usuarios con vendedor_asignado
+            df2 = pd.read_sql_query('''
+                SELECT DISTINCT vendedor_asignado FROM usuarios
+                WHERE vendedor_asignado IS NOT NULL AND vendedor_asignado != ''
+                ORDER BY vendedor_asignado
+            ''', conn)
             conn.close()
-            
-            # Combinar resultados
-            vendedores_list = []
-            
-            if not df_vendedores.empty:
-                vendedores_list.extend(df_vendedores['nombre_vendedor'].tolist())
-            
-            if not df_usuarios.empty:
-                vendedores_list.extend(df_usuarios['vendedor_asignado'].tolist())
-            
-            # Eliminar duplicados y vacíos
-            vendedores_unicos = sorted(list(set([v for v in vendedores_list if v and str(v).strip()])))
-            
-            return pd.DataFrame({'nombre_vendedor': vendedores_unicos})
-            
+
+            vendedores = []
+            if not df1.empty:
+                vendedores.extend(df1['nombre_vendedor'].tolist())
+            if not df2.empty:
+                vendedores.extend(df2['vendedor_asignado'].tolist())
+
+            # Unicos y ordenados
+            vendedores = sorted(set(v for v in vendedores if v and str(v).strip()))
+            return pd.DataFrame({'nombre_vendedor': vendedores})
         except Exception as e:
             print(f"Error obteniendo vendedores: {e}")
             return pd.DataFrame()
-        
+
+
 # ============================================================
-# DEBUG: Verificar carga correcta de UserManager
+# DEBUG (opcional, solo si se ejecuta directamente)
 # ============================================================
 if __name__ == "__main__":
     print("=" * 60)
-    print("🔍 DEBUG: Verificando UserManager")
+    print("🔍 Verificando UserManager")
     print("=" * 60)
-    
-    # Crear instancia temporal para verificar métodos
-    temp_manager = UserManager(":memory:")
-    
-    # Obtener todos los métodos disponibles
-    methods = [method for method in dir(temp_manager) if not method.startswith('_')]
-    
-    print("📋 MÉTODOS DISPONIBLES EN USERMANAGER:")
-    for method in sorted(methods):
-        print(f"   ✅ {method}")
-    
-    # Verificar métodos críticos
-    critical_methods = ['is_strong_password', 'cambiar_password', 'autenticar_usuario']
-    print("\n🔍 MÉTODOS CRÍTICOS:")
-    for method in critical_methods:
-        if method in methods:
-            print(f"   ✅ {method} - PRESENTE")
-        else:
-            print(f"   ❌ {method} - FALTANTE")
-    
+    temp = UserManager(":memory:")
+    methods = [m for m in dir(temp) if not m.startswith('_')]
+    print("📋 Métodos disponibles:")
+    for m in sorted(methods):
+        print(f"   ✅ {m}")
     print("=" * 60)
