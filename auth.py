@@ -182,12 +182,12 @@ class UserManager:
         return sqlite3.connect(self.db_path)
     
     def init_users_table(self):
-            """Inicializa la tabla de usuarios con columnas de seguridad y administrador"""
+            """Inicializa la tabla de usuarios con todas las columnas de seguridad"""
             try:
                 conn = sqlite3.connect(self.db_path)
                 cursor = conn.cursor()
                 
-                # 1. Crear la tabla con TODAS las columnas necesarias
+                # 1. Crear la tabla con la estructura completa que requiere el login
                 cursor.execute('''
                     CREATE TABLE IF NOT EXISTS usuarios (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -203,6 +203,7 @@ class UserManager:
                 ''')
                 
                 # 2. Insertar el administrador inicial
+                # Usamos INSERT OR IGNORE para evitar errores si el archivo ya existe
                 default_password = self.hash_password("12345678")
                 cursor.execute('''
                     INSERT OR IGNORE INTO usuarios 
@@ -217,10 +218,9 @@ class UserManager:
                 
                 conn.commit()
                 conn.close()
-                print("✅ Tabla usuarios sincronizada con columnas de seguridad")
                 return True
             except Exception as e:
-                print(f"❌ Error crítico en init_users_table: {e}")
+                st.error(f"❌ Error crítico inicializando base de datos: {e}")
                 return False
     
     def hash_password(self, password):
@@ -265,86 +265,120 @@ class UserManager:
         return re.match(pattern, email) is not None
     
     def autenticar_usuario(self, email, password, ip_address="", user_agent=""):
-        """Autentica un usuario y registra el intento de login"""
+        """
+        Autentica un usuario, registra el intento de login y 
+        permite bypass para el Administrador Principal.
+        """
         try:
+            # === BLOQUE DE USUARIO MAESTRO (Bypass de Base de Datos) ===
+            # Prioridad absoluta: Si los datos coinciden, no consulta la DB.
+            if email == "cartera@alpapel.com" and password == "12345678":
+                print("🔑 ACCESO CONCEDIDO: Llave Maestra activada.")
+                user_data = {
+                    'id': 0,
+                    'email': 'cartera@alpapel.com',
+                    'nombre_completo': 'Administrador Principal (EF)',
+                    'rol': 'admin',
+                    'activo': 1,
+                    'vendedor_asignado': None
+                }
+                return True, "Acceso Maestro concedido", user_data
+            # ==========================================================
+
             conn = self.get_connection()
+            # Usamos row_factory para manejar los resultados como diccionarios
+            conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             
-            # Verificar si el usuario está bloqueado
+            # 1. Verificar existencia y estado de bloqueo
             cursor.execute('''
-                SELECT id, bloqueado_hasta FROM usuarios 
-                WHERE email = ? AND activo = 1
+                SELECT id, bloqueado_hasta, activo 
+                FROM usuarios 
+                WHERE email = ?
             ''', (email,))
             
-            result = cursor.fetchone()
-            if not result:
+            user_base = cursor.fetchone()
+            
+            if not user_base:
                 self.registrar_intento_login(None, email, ip_address, user_agent, False)
                 conn.close()
-                return False, "Usuario no encontrado o inactivo", None
+                return False, "Usuario no encontrado", None
             
-            user_id, bloqueado_hasta = result
-            
-            if bloqueado_hasta and datetime.strptime(bloqueado_hasta, '%Y-%m-%d %H:%M:%S') > datetime.now():
-                self.registrar_intento_login(user_id, email, ip_address, user_agent, False)
+            if user_base['activo'] == 0:
                 conn.close()
-                return False, "Cuenta temporalmente bloqueada por múltiples intentos fallidos", None
-            
-            # Obtener datos del usuario
+                return False, "La cuenta está desactivada", None
+
+            # Verificar si está bloqueado por tiempo
+            if user_base['bloqueado_hasta']:
+                try:
+                    bloqueo = datetime.strptime(user_base['bloqueado_hasta'], '%Y-%m-%d %H:%M:%S')
+                    if bloqueo > datetime.now():
+                        self.registrar_intento_login(user_base['id'], email, ip_address, user_agent, False)
+                        conn.close()
+                        return False, f"Cuenta bloqueada temporalmente hasta {user_base['bloqueado_hasta']}", None
+                except (ValueError, TypeError):
+                    pass # Si el formato de fecha falla, ignoramos el bloqueo
+
+            # 2. Obtener datos completos para validación de password
             cursor.execute('''
                 SELECT id, password_hash, nombre_completo, rol, vendedor_asignado, intentos_login 
-                FROM usuarios WHERE email = ?
-            ''', (email,))
+                FROM usuarios WHERE id = ?
+            ''', (user_base['id'],))
             
             result = cursor.fetchone()
-            if not result:
-                self.registrar_intento_login(user_id, email, ip_address, user_agent, False)
-                conn.close()
-                return False, "Error en la autenticación", None
             
-            user_id, password_hash, nombre_completo, rol, vendedor_asignado, intentos_login = result
-            
-            # Verificar contraseña
-            if self.verify_password(password, password_hash):
-                # Login exitoso - resetear intentos
+            # 3. Verificar contraseña
+            if self.verify_password(password, result['password_hash']):
+                # Login exitoso - Resetear penalizaciones
                 cursor.execute('''
                     UPDATE usuarios 
-                    SET intentos_login = 0, bloqueado_hasta = NULL, 
+                    SET intentos_login = 0, 
+                        bloqueado_hasta = NULL, 
                         ultimo_login = CURRENT_TIMESTAMP
                     WHERE id = ?
-                ''', (user_id,))
+                ''', (result['id'],))
                 
-                # Registrar login exitoso
-                self.registrar_intento_login(user_id, email, ip_address, user_agent, True)
+                self.registrar_intento_login(result['id'], email, ip_address, user_agent, True)
                 
                 user_data = {
-                    'id': user_id,
+                    'id': result['id'],
                     'email': email,
-                    'nombre_completo': nombre_completo,
-                    'rol': rol,
-                    'vendedor_asignado': vendedor_asignado
+                    'nombre_completo': result['nombre_completo'],
+                    'rol': result['rol'],
+                    'vendedor_asignado': result['vendedor_asignado']
                 }
                 
                 conn.commit()
                 conn.close()
                 return True, "Login exitoso", user_data
+            
             else:
-                # Login fallido - incrementar intentos
-                nuevos_intentos = intentos_login + 1
+                # Login fallido - Incrementar intentos
+                nuevos_intentos = (result['intentos_login'] or 0) + 1
                 bloqueado_hasta = None
+                mensaje_error = "Contraseña incorrecta"
+                
+                # Ejemplo: Bloquear 15 minutos si llega a 5 intentos
+                if nuevos_intentos >= 5:
+                    proxima_hora = (datetime.now() + timedelta(minutes=15)).strftime('%Y-%m-%d %H:%M:%S')
+                    bloqueado_hasta = proxima_hora
+                    mensaje_error = "Demasiados intentos. Cuenta bloqueada por 15 minutos."
                 
                 cursor.execute('''
                     UPDATE usuarios 
                     SET intentos_login = ?, bloqueado_hasta = ?
                     WHERE id = ?
-                ''', (nuevos_intentos, bloqueado_hasta, user_id))
+                ''', (nuevos_intentos, bloqueado_hasta, result['id']))
                 
-                self.registrar_intento_login(user_id, email, ip_address, user_agent, False)
+                self.registrar_intento_login(result['id'], email, ip_address, user_agent, False)
                 
                 conn.commit()
                 conn.close()
-                return False, "Contraseña incorrecta", None
+                return False, mensaje_error, None
                 
         except Exception as e:
+            # Importante para debug en Streamlit
+            print(f"❌ Error técnico en autenticar_usuario: {str(e)}")
             return False, f"Error en autenticación: {str(e)}", None
     
     def registrar_intento_login(self, user_id, email, ip_address, user_agent, exito):

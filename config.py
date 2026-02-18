@@ -8,7 +8,7 @@ class Config:
     VERSION = "2.0.1"  # Versión actualizada
     
     # Base de datos
-    DB_PATH = "cartera_crm2.db"
+    DB_PATH = "cartera_crm.db"
     
     # Configuración de email
     EMAIL_HOST = "smtp.office365.com"
