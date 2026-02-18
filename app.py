@@ -47,11 +47,8 @@ def main():
         else:
             main_app()
     except Exception as e:
-        st.error("""
-        ⚠️ **Error en la aplicación**
-        
-        Por favor recarga la página. Si el problema persiste, contacta al administrador.
-        """)
+        st.error("⚠️ Error en la aplicación")
+        st.exception(e)  # Esto mostrará el traceback completo
         st.stop()
 
 def init_session_state():
