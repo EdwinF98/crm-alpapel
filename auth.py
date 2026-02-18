@@ -1,6 +1,6 @@
 # auth.py - VERSIÓN STREAMLIT
 import time
-from config import config
+from config import Config as config
 import sqlite3
 import streamlit as st
 from datetime import datetime, timedelta

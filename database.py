@@ -2290,4 +2290,4 @@ class DatabaseManager:
         ''', ('cartera@alpapel.com', default_password, 'Administrador Principal', 'admin'))
         
         conn.commit()
-        conn.close()    
+        conn.close()   

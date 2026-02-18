@@ -20,7 +20,7 @@ def generar_pdf_estado_cuenta(cliente_data, cartera_df):
     base_dir = os.path.dirname(os.path.abspath(__file__))
 
     # --- 1. ENCABEZADO (Logo y Título) ---
-    logo_path = os.path.join(base_dir, "assets", "Logo_formato.jpg")
+    logo_path = os.path.join(base_dir, "assets", "logo_formato.jpg")
     
     # Estilo para el título
     title_style = ParagraphStyle(
@@ -131,7 +131,7 @@ def generar_pdf_estado_cuenta(cliente_data, cartera_df):
     story.append(Paragraph(nota_texto, nota_style))
 
     # Logo inferior
-    logo_inf_path = os.path.join(base_dir, "assets", "Logo_inferior.jpg")
+    logo_inf_path = os.path.join(base_dir, "assets", "logo_inferior.jpg")
     if os.path.exists(logo_inf_path):
         story.append(Spacer(1, 20))
         img_inf = Image(logo_inf_path, width=6*inch, height=0.8*inch)

@@ -5,72 +5,10 @@ from datetime import datetime
 from docxtpl import DocxTemplate
 import io
 import tempfile
-from config import config
+from config import Config as config
 from datetime import datetime, timedelta
 from reporte_pdf import generar_pdf_estado_cuenta
 import os
-
-def generar_estado_cuenta_word(cliente_data, cartera_df):
-    """Toma la plantilla de ALPAPEL y la llena con datos del cliente"""
-    try:
-        # 1. Cargar la plantilla desde la carpeta assets
-        ruta_plantilla = os.path.join("assets", "Formato ALPAPEL SAS.docx")
-        if not os.path.exists(ruta_plantilla):
-            st.error("❌ No se encontró el archivo 'Formato ALPAPEL SAS.docx' en la carpeta assets.")
-            return None
-
-        doc = DocxTemplate(ruta_plantilla)
-        
-        # 2. Preparar lista de facturas (cartera)
-        tabla_facturas = []
-        suma_total = 0
-        
-        for _, fila in cartera_df.iterrows():
-            # Determinar columna de documento
-            documento = str(fila.get('documento')) or str(fila.get('nro_factura')) or 'N/A'
-            
-            # Determinar columna de saldo/monto
-            saldo = 0
-            for col in ['saldo', 'total_cop']:
-                if col in fila and pd.notna(fila[col]):
-                    saldo = float(fila[col])
-                    break
-            
-            # Fechas
-            emision = str(fila.get('fecha_emision', 'N/A')).split(' ')[0]
-            vence = str(fila.get('fecha_vencimiento', 'N/A')).split(' ')[0]
-            mora = int(fila.get('dias_vencidos', 0))
-            
-            tabla_facturas.append({
-                'factura': documento,
-                'emision': emision,
-                'vence': vence,
-                'mora': mora,
-                'saldo': f"${saldo:,.0f}"
-            })
-            suma_total += saldo
-
-        # 3. Crear el contexto para la plantilla Word
-        # SOLO las etiquetas que están en Formato ALPAPEL SAS.docx
-        context = {
-            'cliente': cliente_data.get('nombre_cliente') or cliente_data.get('razon_social') or 'N/A',
-            'nit': cliente_data.get('nit_cliente') or 'N/A',
-            'hoy': datetime.now().strftime("%d/%m/%Y"),
-            'facturas': tabla_facturas,
-            'total_cartera': f"${suma_total:,.0f}"
-        }
-        
-        # 4. Renderizar y guardar en memoria
-        doc.render(context)
-        target_stream = io.BytesIO()
-        doc.save(target_stream)
-        target_stream.seek(0)
-        
-        return target_stream
-        
-    except Exception as e:
-        st.error(f"Error técnico al generar Word: {e}")
-        return None
 
 def gestion_section():
     """Sección completa de Gestión de Clientes - VERSIÓN PDF UNIFICADA CON PLANTILLA WORD"""

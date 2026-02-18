@@ -2,7 +2,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from config import config
+from config import Config
 
 def admin_section():
     """Sección de administración de usuarios del sistema"""
@@ -751,7 +751,7 @@ def mostrar_tabla_usuarios():
     display_df = usuarios_df.copy()
     
     # Formatear columnas
-    display_df['rol'] = display_df['rol'].apply(lambda x: config.ROLES.get(x, x))
+    display_df['rol'] = display_df['rol'].apply(lambda x: Config.ROLES.get(x, x))
     display_df['vendedor_asignado'] = display_df['vendedor_asignado'].fillna('No asignado')
     display_df['activo'] = display_df['activo'].apply(lambda x: '✅ Activo' if x == 1 else '❌ Inactivo')
     
@@ -795,7 +795,7 @@ def mostrar_tabla_usuarios():
         with col_info1:
             st.write(f"**Email:** {usuario_data['email']}")
             st.write(f"**Nombre:** {usuario_data['nombre_completo']}")
-            st.write(f"**Rol:** {config.ROLES.get(usuario_data['rol'], usuario_data['rol'])}")
+            st.write(f"**Rol:** {Config.ROLES.get(usuario_data['rol'], usuario_data['rol'])}")
         
         with col_info2:
             st.write(f"**Vendedor:** {usuario_data['vendedor_asignado'] or 'No asignado'}")
@@ -899,7 +899,7 @@ def eliminar_usuario_confirmacion(usuario_data):
     
     **Email:** {usuario_data['email']}
     **Nombre:** {usuario_data['nombre_completo']}
-    **Rol:** {config.ROLES.get(usuario_data['rol'], usuario_data['rol'])}
+    **Rol:** {Config.ROLES.get(usuario_data['rol'], usuario_data['rol'])}
     
     **Esta acción no se puede deshacer.**
     """)
@@ -942,15 +942,15 @@ def configuracion_section():
         st.info(f"""
         **🛡️ Información de Seguridad:**
         - Sesión activa: {st.session_state.user['nombre_completo']}
-        - Rol actual: {config.ROLES.get(st.session_state.user['rol'])}
+        - Rol actual: {Config.ROLES.get(st.session_state.user['rol'])}
         - Tiempo restante: {st.session_state.auth_manager.get_session_time_remaining()} min
         """)
     
     with col_info2:
         st.info(f"""
         **📅 Información del Sistema:**
-        - Versión: {config.VERSION}
-        - Dominio: {config.COMPANY_DOMAIN}
+        - Versión: {Config.VERSION}
+        - Dominio: {Config.COMPANY_DOMAIN}
         - Fecha actual: {datetime.now().strftime('%Y-%m-%d %H:%M')}
         """)
     

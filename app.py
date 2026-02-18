@@ -2,25 +2,38 @@
 import streamlit as st
 import pandas as pd
 import time
-from datetime import datetime
 import os
 import traceback
-from datetime import datetime, timedelta
-from streamlit_styles import STREAMLIT_STYLES
 import warnings
+import base64
+import sqlite3
+from datetime import datetime, timedelta
+from PIL import Image
+
+# Importar tus módulos (Asegurando compatibilidad con Config)
+from config import Config as config  # Ajuste de mayúscula para Linux
+from streamlit_styles import STREAMLIT_STYLES
+from database import DatabaseManager
+from auth import AuthManager
+
+# Importar secciones de módulos
 from gestion_module import gestion_section
 from analisis_cartera_module import analisis_cartera_section
 from admin_module import admin_section
-from PIL import Image
-import base64
-import sqlite3
 
+# Desactivar advertencias antes de iniciar Streamlit
 warnings.filterwarnings('ignore', category=UserWarning)
 
-# Importar tus módulos existentes
-from database import DatabaseManager
-from auth import AuthManager
-from config import config
+# =========================================================
+# 2. CONFIGURACIÓN DE PÁGINA (DEBE SER LO PRIMERO)
+# =========================================================
+# En la nube, si cualquier st.write o st.markdown ocurre antes que esto, la app muere.
+st.set_page_config(
+    page_title=config.APP_NAME,
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
 def set_custom_page_config():
     """Configuración personalizada de la página sin logos"""
