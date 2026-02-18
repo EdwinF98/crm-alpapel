@@ -70,6 +70,78 @@ class DatabaseManager:
         except Exception as e:
             print(f"Error inicializando DB: {e}")
 
+    def init_db(self):
+        """Inicializa todas las tablas del sistema para evitar errores de 'no such table'"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            # 1. Tabla de Clientes
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS clientes (
+                    nit_cliente TEXT PRIMARY KEY,
+                    razon_social TEXT NOT NULL,
+                    ciudad TEXT,
+                    direccion TEXT,
+                    telefono TEXT,
+                    celular TEXT,
+                    email TEXT,
+                    vendedor_asignado TEXT,
+                    fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+
+            # 2. Tabla de Cartera (Facturación)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS cartera (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    nit_cliente TEXT,
+                    nro_factura TEXT UNIQUE,
+                    valor_total REAL,
+                    total_cop REAL,
+                    fecha_emision DATE,
+                    fecha_vencimiento DATE,
+                    dias_vencidos INTEGER,
+                    condicion_pago TEXT,
+                    estado TEXT,
+                    vendedor TEXT,
+                    FOREIGN KEY (nit_cliente) REFERENCES clientes (nit_cliente)
+                )
+            ''')
+
+            # 3. Tabla de Gestiones
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS gestiones (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    nit_cliente TEXT,
+                    fecha_gestion DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    tipo_contacto TEXT,
+                    resultado TEXT,
+                    observaciones TEXT,
+                    proximo_contacto DATE,
+                    usuario_gestion TEXT,
+                    FOREIGN KEY (nit_cliente) REFERENCES clientes (nit_cliente)
+                )
+            ''')
+
+            # 4. Tabla de Actualizaciones (Logs)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS actualizaciones_cartera (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    fecha_actualizacion DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    usuario TEXT,
+                    archivo_nombre TEXT,
+                    registros_procesados INTEGER
+                )
+            ''')
+
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            print(f"Error inicializando tablas: {e}")
+            return False
+
     def registrar_actualizacion_cartera(self, email_usuario, nombre_archivo="Cartera_Principal.xlsx"):
         """Registra el momento exacto en que se cargaron los datos"""
         ahora = datetime.now().strftime("%d/%m/%Y %I:%M %p")

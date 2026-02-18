@@ -71,12 +71,14 @@ def init_session_state():
     # 1. Inicializar DatabaseManager (ahora usa SQLite por defecto)
     if 'db' not in st.session_state:
         st.session_state.db = DatabaseManager()
+        st.session_state.db.init_db()
         print("✅ DatabaseManager inicializado con SQLite")
     
     # 2. Inicializar UserManager - UNA SOLA INSTANCIA
     if 'user_manager' not in st.session_state:
         from auth import UserManager
         st.session_state.user_manager = UserManager(db_path)  # Usar db_path directamente
+        st.session_state.user_manager.init_users_table()
         print("✅ UserManager inicializado (ÚNICA INSTANCIA)")
         print(f"   Tipo: {type(st.session_state.user_manager).__name__}")
         print(f"   Módulo: {st.session_state.user_manager.__class__.__module__}")
