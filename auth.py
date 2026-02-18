@@ -182,12 +182,12 @@ class UserManager:
         return sqlite3.connect(self.db_path)
     
     def init_users_table(self):
-            """Inicializa la tabla de usuarios y crea el admin por defecto si no existe"""
+            """Inicializa la tabla de usuarios con columnas de seguridad y administrador"""
             try:
                 conn = sqlite3.connect(self.db_path)
                 cursor = conn.cursor()
                 
-                # 1. Crear la tabla con la estructura correcta
+                # 1. Crear la tabla con TODAS las columnas necesarias
                 cursor.execute('''
                     CREATE TABLE IF NOT EXISTS usuarios (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -196,17 +196,18 @@ class UserManager:
                         nombre_completo TEXT NOT NULL,
                         rol TEXT NOT NULL,
                         vendedor_asignado TEXT,
-                        activo INTEGER DEFAULT 1
+                        activo INTEGER DEFAULT 1,
+                        intentos_fallidos INTEGER DEFAULT 0,
+                        bloqueado_hasta DATETIME
                     )
                 ''')
                 
-                # 2. Insertar el administrador inicial (sin email_verificado)
-                # Usamos INSERT OR IGNORE para que no falle si ya existe
+                # 2. Insertar el administrador inicial
                 default_password = self.hash_password("12345678")
                 cursor.execute('''
                     INSERT OR IGNORE INTO usuarios 
-                    (email, password_hash, nombre_completo, rol, activo)
-                    VALUES (?, ?, ?, ?, 1)
+                    (email, password_hash, nombre_completo, rol, activo, intentos_fallidos)
+                    VALUES (?, ?, ?, ?, 1, 0)
                 ''', (
                     'cartera@alpapel.com', 
                     default_password, 
@@ -216,9 +217,10 @@ class UserManager:
                 
                 conn.commit()
                 conn.close()
+                print("✅ Tabla usuarios sincronizada con columnas de seguridad")
                 return True
             except Exception as e:
-                print(f"❌ Error inicializando tabla de usuarios: {e}")
+                print(f"❌ Error crítico en init_users_table: {e}")
                 return False
     
     def hash_password(self, password):
