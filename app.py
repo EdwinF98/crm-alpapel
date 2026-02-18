@@ -1,3 +1,24 @@
+import streamlit as st
+import sys
+import traceback
+
+# === BLOQUE DE DEBUG UNIVERSAL (Líneas 1-15) ===
+# Este bloque captura errores incluso en los imports sin mover tu código
+def capturar_errores_globales(type, value, tb):
+    error_msg = "".join(traceback.format_exception(type, value, tb))
+    # Intentamos mostrarlo en la web
+    try:
+        st.error("🚨 ERROR TÉCNICO DETECTADO")
+        st.code(error_msg)
+    except:
+        # Si Streamlit aún no carga, lo saca por la terminal negra
+        print("\n" + "!"*60 + "\n" + error_msg + "\n" + "!"*60)
+
+sys.excepthook = capturar_errores_globales
+# ===============================================
+
+# AQUÍ EMPIEZA TU CÓDIGO ORIGINAL (Tus imports, funciones, etc.)
+
 # app.py
 import streamlit as st
 import pandas as pd
