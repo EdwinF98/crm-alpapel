@@ -339,7 +339,7 @@ def mostrar_formulario_gestion():
     st.markdown("---")
     st.subheader("➕ Registrar Nueva Gestión")
     
-    with st.form("formulario_gestion_principal", clear_on_submit=True):
+    with st.form("formulario_gestion_compacto", clear_on_submit=True):
         # Campos en columnas compactas
         col1, col2 = st.columns(2)
         
@@ -368,7 +368,7 @@ def mostrar_formulario_gestion():
             
             proxima_gestion = st.date_input(
                 "Próxima Gestión:",
-                value=datetime.now().date() + timedelta(days=7),
+                value=datetime.now().date() + pd.Timedelta(days=7),
                 key="proxima_gestion_compact"
             )
         
@@ -378,7 +378,7 @@ def mostrar_formulario_gestion():
         with col3:
             promesa_fecha = st.date_input(
                 "Promesa Pago - Fecha:",
-                value=datetime.now().date() + timedelta(days=15),
+                value=datetime.now().date() + pd.Timedelta(days=15),
                 key="promesa_fecha_gestion_compact"
             )
         
@@ -400,7 +400,7 @@ def mostrar_formulario_gestion():
             key="observaciones_gestion_compact"
         )
         
-        # Botón de guardar
+        # Botón de guardar compacto
         guardar_gestion = st.form_submit_button(
             "💾 Guardar Gestión",
             use_container_width=True,
@@ -408,11 +408,16 @@ def mostrar_formulario_gestion():
         )
         
         if guardar_gestion:
-            # Llamar a la función de guardado (que ahora cierra el formulario internamente)
-            guardar_nueva_gestion(
+            success = guardar_nueva_gestion(
                 tipo_contacto, resultado, fecha_contacto, observaciones,
                 promesa_fecha, promesa_monto, proxima_gestion
             )
+            
+            if success:
+                st.success("✅ Gestión guardada correctamente")
+                # Recargar historial
+                cliente = st.session_state.cliente_seleccionado_gestion
+                st.session_state.historial_gestiones = cargar_historial_gestiones_cliente(cliente['nit_cliente'])
 
 def mostrar_historial_gestiones():
     """Muestra el historial de gestiones del cliente con información del usuario"""
@@ -1353,13 +1358,13 @@ def obtener_opciones_resultado():
 
 def guardar_nueva_gestion(tipo_contacto, resultado, fecha_contacto, observaciones,
                          promesa_fecha, promesa_monto, proxima_gestion):
-    """Guarda una nueva gestión en la base de datos y cierra el formulario"""
+    """Guarda una nueva gestión en la base de datos con información del usuario"""
     
     try:
         cliente = st.session_state.cliente_seleccionado_gestion
         db = st.session_state.db
         
-        # Validar que se haya seleccionado un resultado válido
+        # Validar campos obligatorios
         if not resultado or resultado.strip() == "" or resultado in [
             "💰 COMPROMISO DE PAGO", "📞 CONTACTO Y LOCALIZACIÓN", 
             "⚠️ DIFICULTAD Y RECHAZO", "🔄 SEGUIMIENTO Y ACCIONES INTERNAS", ""
@@ -1372,41 +1377,37 @@ def guardar_nueva_gestion(tipo_contacto, resultado, fecha_contacto, observacione
         if st.session_state.get('user'):
             usuario_actual = st.session_state.user.get('email', '')
         
-        # Preparar tupla con los datos (el orden debe coincidir con la consulta SQL)
+        # Preparar datos (usuario se llena automáticamente en database.py)
         gestion_data = (
             cliente['nit_cliente'],
             cliente['razon_social'],
             tipo_contacto,
             resultado,
             fecha_contacto.strftime('%Y-%m-%d'),
-            usuario_actual,
+            usuario_actual,  # Se pasa el email del usuario
             observaciones,
             promesa_fecha.strftime('%Y-%m-%d') if promesa_fecha else None,
             float(promesa_monto) if promesa_monto and promesa_monto > 0 else None,
             proxima_gestion.strftime('%Y-%m-%d') if proxima_gestion else None
         )
         
-        # Guardar en BD
+        # Guardar en base de datos
         success = db.registrar_gestion(gestion_data)
         
         if success:
-            # Mostrar mensaje de éxito
+            # Mostrar confirmación con información del usuario
             usuario_nombre = st.session_state.user.get('nombre_completo', usuario_actual) if st.session_state.get('user') else usuario_actual
             st.success(f"✅ Gestión guardada correctamente por: {usuario_nombre}")
             
             # Actualizar historial
             st.session_state.historial_gestiones = db.obtener_gestiones_cliente(cliente['nit_cliente'])
-            
-            # 🔥 CERRAR EL FORMULARIO Y REFRESCAR LA VISTA
-            st.session_state.mostrar_formulario_gestion = False
-            st.rerun()
             return True
         else:
-            st.error("❌ Error al guardar la gestión (la base de datos no confirmó)")
+            st.error("❌ Error al guardar la gestión")
             return False
             
     except Exception as e:
-        st.error(f"❌ Error inesperado al guardar gestión: {str(e)}")
+        st.error(f"❌ Error al guardar gestión: {str(e)}")
         return False
 
 def cargar_historial_gestiones_cliente(nit_cliente):
