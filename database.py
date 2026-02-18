@@ -2141,6 +2141,24 @@ class DatabaseManager:
             print(f"Error obteniendo usuarios: {e}")
             return pd.DataFrame()
 
+    def obtener_usuarios_con_gestiones(self):
+        """Obtiene todos los usuarios que tienen gestiones registradas"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            query = '''
+                SELECT DISTINCT u.id, u.email, u.nombre_completo, u.vendedor_asignado
+                FROM usuarios u
+                JOIN gestiones g ON u.email = g.usuario
+                WHERE u.activo = 1
+                ORDER BY u.nombre_completo
+            '''
+            df = pd.read_sql_query(query, conn)
+            conn.close()
+            return df
+        except Exception as e:
+            print(f"Error obteniendo usuarios con gestiones: {e}")
+            return pd.DataFrame()
+
     def crear_usuario(self, email, nombre_completo, rol, vendedor_asignado=None, activo=True):
         """Crea un nuevo usuario"""
         try:
