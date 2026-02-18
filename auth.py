@@ -182,56 +182,44 @@ class UserManager:
         return sqlite3.connect(self.db_path)
     
     def init_users_table(self):
-        """Inicializa las tablas de usuarios en la base de datos"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        # Tabla de usuarios
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS usuarios (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                email TEXT UNIQUE NOT NULL,
-                password_hash TEXT NOT NULL,
-                nombre_completo TEXT NOT NULL,
-                rol TEXT NOT NULL DEFAULT 'comercial',
-                vendedor_asignado TEXT,
-                activo INTEGER DEFAULT 1,
-                email_verificado INTEGER DEFAULT 0,
-                fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP,
-                ultimo_login DATETIME,
-                intentos_login INTEGER DEFAULT 0,
-                bloqueado_hasta DATETIME,
-                reset_token TEXT,
-                reset_token_expira DATETIME
-            )
-        ''')
-        
-        # Tabla de auditoría de login
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS auditoria_login (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                usuario_id INTEGER,
-                email TEXT,
-                fecha_login DATETIME DEFAULT CURRENT_TIMESTAMP,
-                ip_address TEXT,
-                user_agent TEXT,
-                exito INTEGER DEFAULT 0,
-                FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
-            )
-        ''')
-        
-        # Crear usuario admin por defecto si no existe
-        cursor.execute('SELECT COUNT(*) FROM usuarios WHERE email = "cartera@alpapel.com"')
-        if cursor.fetchone()[0] == 0:
-            default_password = self.hash_password("12345678")
-            cursor.execute('''
-                INSERT INTO usuarios (email, password_hash, nombre_completo, rol, email_verificado, activo)
-                VALUES (?, ?, ?, ?, 1, 1)
-            ''', ('cartera@alpapel.com', default_password, 'Administrador Principal', 'admin'))
-            print("✅ Usuario admin creado: cartera@alpapel.com / 12345678")
-        
-        conn.commit()
-        conn.close()
+            """Inicializa la tabla de usuarios y crea el admin por defecto si no existe"""
+            try:
+                conn = sqlite3.connect(self.db_path)
+                cursor = conn.cursor()
+                
+                # 1. Crear la tabla con la estructura correcta
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS usuarios (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        email TEXT UNIQUE NOT NULL,
+                        password_hash TEXT NOT NULL,
+                        nombre_completo TEXT NOT NULL,
+                        rol TEXT NOT NULL,
+                        vendedor_asignado TEXT,
+                        activo INTEGER DEFAULT 1
+                    )
+                ''')
+                
+                # 2. Insertar el administrador inicial (sin email_verificado)
+                # Usamos INSERT OR IGNORE para que no falle si ya existe
+                default_password = self.hash_password("12345678")
+                cursor.execute('''
+                    INSERT OR IGNORE INTO usuarios 
+                    (email, password_hash, nombre_completo, rol, activo)
+                    VALUES (?, ?, ?, ?, 1)
+                ''', (
+                    'cartera@alpapel.com', 
+                    default_password, 
+                    'Administrador Principal', 
+                    'admin'
+                ))
+                
+                conn.commit()
+                conn.close()
+                return True
+            except Exception as e:
+                print(f"❌ Error inicializando tabla de usuarios: {e}")
+                return False
     
     def hash_password(self, password):
         """Encripta la contraseña usando SHA-256 con salt"""
