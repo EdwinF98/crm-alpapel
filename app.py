@@ -1,24 +1,3 @@
-import streamlit as st
-import sys
-import traceback
-
-# === BLOQUE DE DEBUG UNIVERSAL (Líneas 1-15) ===
-# Este bloque captura errores incluso en los imports sin mover tu código
-def capturar_errores_globales(type, value, tb):
-    error_msg = "".join(traceback.format_exception(type, value, tb))
-    # Intentamos mostrarlo en la web
-    try:
-        st.error("🚨 ERROR TÉCNICO DETECTADO")
-        st.code(error_msg)
-    except:
-        # Si Streamlit aún no carga, lo saca por la terminal negra
-        print("\n" + "!"*60 + "\n" + error_msg + "\n" + "!"*60)
-
-sys.excepthook = capturar_errores_globales
-# ===============================================
-
-# AQUÍ EMPIEZA TU CÓDIGO ORIGINAL (Tus imports, funciones, etc.)
-
 # app.py
 import streamlit as st
 import pandas as pd
@@ -28,6 +7,7 @@ import traceback
 import warnings
 import base64
 import sqlite3
+import tempfile
 from datetime import datetime, timedelta
 from PIL import Image
 
@@ -48,7 +28,6 @@ warnings.filterwarnings('ignore', category=UserWarning)
 # =========================================================
 # 2. CONFIGURACIÓN DE PÁGINA (DEBE SER LO PRIMERO)
 # =========================================================
-# En la nube, si cualquier st.write o st.markdown ocurre antes que esto, la app muere.
 st.set_page_config(
     page_title=config.APP_NAME,
     page_icon="📊",
@@ -56,26 +35,8 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-def set_custom_page_config():
-    """Configuración personalizada de la página sin logos"""
-    try:
-        st.set_page_config(
-            page_title=config.APP_NAME,
-            page_icon="📊",
-            layout="wide",
-            initial_sidebar_state="expanded"
-        )
-    except Exception as e:
-        st.set_page_config(
-            page_title=config.APP_NAME,
-            page_icon="📊",
-            layout="wide",
-            initial_sidebar_state="expanded"
-        )
-
 def main():
     try:
-        set_custom_page_config()
         init_session_state()
         
         # Aplicar estilos corporativos
@@ -231,23 +192,20 @@ def get_img_as_base64(file_path):
 def login_section():
     """Sección de autenticación compacta y ajustada a la pantalla"""
     
-    # 1. CSS PARA REDUCIR ESPACIOS (Esto quita el espacio vacío de arriba)
+    # 1. CSS PARA REDUCIR ESPACIOS
     st.markdown("""
         <style>
-            /* Reducir el padding superior de la aplicación */
             .block-container {
                 padding-top: 2rem !important;
                 padding-bottom: 1rem !important;
             }
-            /* Opcional: Ajustar espacio entre elementos para que sea más compacto */
             div[data-testid="stVerticalBlock"] > div {
                 gap: 0.5rem !important;
             }
         </style>
     """, unsafe_allow_html=True)
 
-    # 2. PREPARACIÓN DEL LOGO (Reducido a 100px para ganar espacio)
-    # Nota: Asegúrate de que get_img_as_base64 esté definida en tu código
+    # 2. PREPARACIÓN DEL LOGO
     img_base64 = get_img_as_base64("assets/logo.png")
     
     html_logo = ""
@@ -255,7 +213,6 @@ def login_section():
         html_logo = f"""<div style="display: flex; justify-content: center; margin: 5px 0;"><img src="{img_base64}" style="width: 100px; height: auto;"></div>"""
     
     # 3. HTML DEL HEADER COMPACTO
-    # Reduje los tamaños de fuente (2.5rem a 2rem) y los márgenes
     st.markdown(
         f"""
 <div style="text-align: center;">
@@ -267,23 +224,20 @@ def login_section():
         unsafe_allow_html=True
     )
     
-    st.markdown("---") # Una línea divisoria sutil y delgada
+    st.markdown("---")
     
     # 4. ESTRUCTURA CENTRALIZADA
-    # Usamos columnas para centrar todo el contenido (Formulario + Botones de ayuda)
-    col1, col2, col3 = st.columns([1, 1.5, 1]) # 1.5 en el medio para hacerlo un poco más angosto y estético
+    col1, col2, col3 = st.columns([1, 1.5, 1])
     
     with col2:
-        with st.form("login_form", clear_on_submit=True, border=True): # border=True da un marco elegante
+        with st.form("login_form", clear_on_submit=True, border=True):
             st.markdown("<h4 style='text-align: center; margin-bottom: 10px;'>Iniciar Sesión</h4>", unsafe_allow_html=True)
             
             email = st.text_input("📧 Email", placeholder="usuario@alpapel.com", key="login_email")
             password = st.text_input("🔒 Contraseña", type="password", placeholder="Contraseña", key="login_password")
             
-            # Espacio vertical pequeño
             st.write("") 
             
-            # Botón de login
             login_button = st.form_submit_button("🚀 Ingresar", use_container_width=True, type="primary")
             
             if login_button:
@@ -294,7 +248,6 @@ def login_section():
                     else:
                         with st.spinner("Verificando..."):
                             time.sleep(0.5)
-                            # --- TU LÓGICA DE AUTENTICACIÓN ---
                             success, message, user_data = st.session_state.user_manager.autenticar_usuario(
                                 email, password, "web_app", "Streamlit_CRM"
                             )
@@ -313,13 +266,11 @@ def login_section():
                 else:
                     st.warning("⚠️ Faltan datos")
 
-        # --- BOTONES DE AYUDA (Ahora dentro de la columna central) ---
-        # Al ponerlos aquí, respetan el ancho del formulario
-        st.write("") # Un pequeño espacio
+        st.write("")
         sub_col1, sub_col2 = st.columns(2)
         with sub_col1:
             if st.button("¿Contraseña?", use_container_width=True, key="btn_forgot_pass"):
-                st.toast("📞 Contacta a soporte: cartera@alpapel.com") # Usamos toast para que sea menos invasivo
+                st.toast("📞 Contacta a soporte: cartera@alpapel.com")
         with sub_col2:
             if st.button("Soporte", use_container_width=True, key="btn_help_support"):
                  st.toast("📧 Escribe a: cartera@alpapel.com")
@@ -364,7 +315,6 @@ def main_app():
     
     # Sidebar con navegación
     with st.sidebar:
-        # --- AQUÍ AGREGAMOS EL LOGO (Inicio del Sidebar) ---
         img_base64 = get_img_as_base64("assets/logo.png")
         if img_base64:
             st.markdown(
@@ -376,11 +326,9 @@ def main_app():
                 """,
                 unsafe_allow_html=True
             )
-        # ---------------------------------------------------
 
         st.header("🧭 Navegación")
         
-        # Definir secciones disponibles según permisos
         sections = {
             "🏠 Dashboard": "dashboard",
             "📁 Cartera": "cartera", 
@@ -389,11 +337,9 @@ def main_app():
             "📈 Análisis Gestión": "analisis_gestion",
         }
         
-        # ✅ Solo mostrar Admin si tiene permisos
         if st.session_state.auth_manager.has_permission('manage_users'):
             sections["🛡️ Admin"] = "admin"
         
-        # Selector de sección
         selected_section = st.radio(
             "Selecciona una sección:",
             options=list(sections.keys()),
@@ -403,16 +349,11 @@ def main_app():
         
         st.session_state.section = selected_section
                 
-        # ============================================================
-        # INFORMACIÓN DE SESIÓN (tu código existente)
-        # ============================================================
-        
         st.markdown("---")
         st.markdown("**💼 Información de Sesión**")
         tiempo_restante = st.session_state.auth_manager.get_session_time_remaining()
         st.write(f"⏰ Tiempo restante: {tiempo_restante} min")
         
-        # ✅ NUEVO: Información de sesión persistente
         try:
             from session_utils import session_manager
             tiempo_persistente = session_manager.get_remaining_time()
@@ -428,7 +369,6 @@ def main_app():
         st.markdown("Edwin Franco (EF)")
         st.markdown("---")
         
-        # Botón de actualizar datos
         if st.button("🔄 Actualizar Datos", use_container_width=True, key="btn_actualizar_datos"):
             with st.spinner("Actualizando datos..."):
                 load_initial_data()
@@ -443,7 +383,6 @@ def main_app():
         "📈 Análisis Gestión": analisis_gestion_section,
     }
     
-    # ✅ Agregar admin si tiene permisos
     if st.session_state.auth_manager.has_permission('manage_users'):
         section_handlers["🛡️ Admin"] = admin_section
     
@@ -453,19 +392,15 @@ def main_app():
 def load_initial_data():
     """Cargar datos iniciales para la aplicación"""
     try:
-        # Forzar actualización de datos
         st.session_state.datos_actualizados = True
         st.session_state.ultima_actualizacion = datetime.now()
         
-        # ✅ Asegurar que DatabaseManager tiene el usuario actual
         if st.session_state.user:
             st.session_state.db.set_current_user(st.session_state.user)
         
-        # Debug: Verificar usuario actual
         print(f"🔍 DEBUG - Usuario actual: {st.session_state.user}")
         print(f"🔍 DEBUG - Rol: {st.session_state.user['rol']}")
         
-        # ✅ Debug adicional: Verificar datos de cartera
         cartera = st.session_state.db.obtener_cartera_actual()
         print(f"🔍 DEBUG - Cartera obtenida: {len(cartera)} registros")
         
@@ -473,17 +408,13 @@ def load_initial_data():
         st.error(f"Error cargando datos: {e}")
     
 def dashboard_section():
-    """Sección del Dashboard simplificada (Logo ya visible en Sidebar)"""
-    
-    # ✅ HEADER LIMPIO: Título con icono, sin repetir el logo grande
+    """Sección del Dashboard simplificada"""
     st.markdown("## 📊 Dashboard Principal")
     
     try:
-        # Obtener métricas
         with st.spinner("Cargando métricas..."):
             metricas = st.session_state.db.obtener_metricas_principales()
         
-        # Mostrar métricas en cards
         st.subheader("📈 Resumen General")
         
         col1, col2, col3, col4 = st.columns(4)
@@ -499,30 +430,25 @@ def dashboard_section():
         
         st.markdown("---")
         
-        # Gráficas
         try:
             from graficas import crear_grafica_distribucion_estado, crear_grafica_top_clientes, crear_grafica_evolucion_mensual
             datos_graficas = st.session_state.db.obtener_datos_graficas()
             
-            # Gráfica 1: Distribución
             st.subheader("📊 Distribución de Cartera por Estado")
             fig1 = crear_grafica_distribucion_estado(datos_graficas)
             if fig1: st.plotly_chart(fig1, use_container_width=True)
             else: st.info("No hay datos suficientes...")
             
-            # Gráfica 2: Top Clientes
             st.subheader("⚠️ Top 10 Clientes con Mayor Mora")
             fig2 = crear_grafica_top_clientes(datos_graficas)
             if fig2: st.plotly_chart(fig2, use_container_width=True)
             else: st.info("No hay clientes con mora...")
             
-            # Gráfica 3: Evolución
             st.subheader("📈 Evolución Mensual")
             fig3 = crear_grafica_evolucion_mensual(datos_graficas)
             if fig3: 
                 st.plotly_chart(fig3, use_container_width=True)
             else:
-                # Intento alternativo con datos actuales si no hay histórico
                 cartera_actual = st.session_state.db.obtener_cartera_actual()
                 if not cartera_actual.empty:
                     st.info("Visualizando datos actuales.")
@@ -545,17 +471,13 @@ def crear_grafica_directa_evolucion(cartera_df):
         if cartera_df.empty:
             return None
         
-        # Convertir fechas
         cartera_df['fecha_vencimiento'] = pd.to_datetime(cartera_df['fecha_vencimiento'])
-        
-        # Filtrar últimos 12 meses
         fecha_limite = datetime.now() - timedelta(days=365)
         cartera_filtrada = cartera_df[cartera_df['fecha_vencimiento'] >= fecha_limite]
         
         if cartera_filtrada.empty:
             return None
         
-        # Agrupar por mes
         cartera_filtrada['mes'] = cartera_filtrada['fecha_vencimiento'].dt.strftime('%m/%y')
         cartera_por_mes = cartera_filtrada.groupby('mes').agg({
             'total_cop': 'sum',
@@ -563,15 +485,12 @@ def crear_grafica_directa_evolucion(cartera_df):
             'nit_cliente': 'nunique'
         }).reset_index()
         
-        # Ordenar por mes
         meses_orden = sorted(cartera_por_mes['mes'].unique(),   
                            key=lambda x: datetime.strptime(x, '%m/%y'))
         cartera_por_mes = cartera_por_mes.set_index('mes').loc[meses_orden].reset_index()
         
-        # Convertir a millones
         cartera_por_mes['total_millones'] = cartera_por_mes['total_cop'] / 1000000
         
-        # Crear gráfica
         fig = px.bar(
             cartera_por_mes,
             x='mes',
@@ -585,7 +504,6 @@ def crear_grafica_directa_evolucion(cartera_df):
             text='total_millones'
         )
         
-        # Actualizar diseño
         fig.update_traces(
             texttemplate='$%{y:.1f}M<br>%{customdata[0]} facturas',
             textposition='outside',
@@ -618,39 +536,26 @@ def cartera_section():
     """Sección de Cartera - VERSIÓN MEJORADA CON DATOS DE CLIENTE"""
     st.header("📁 Cartera y Gestión de Clientes")
     
-    # INICIALIZAR ESTADO PARA CLIENTE SELECCIONADO
     if 'cliente_seleccionado' not in st.session_state:
         st.session_state.cliente_seleccionado = None
         st.session_state.datos_cliente_completos = None
     
-    # Primero procesar cualquier carga pendiente
     procesar_carga_excel()
     
     try:
-        # MÉTRICAS RÁPIDAS DE CARTERA
-        st.subheader("📊 Métricas Rápidas de Cartera")
-        
-        # Obtener datos iniciales
         cartera_completa = st.session_state.db.obtener_cartera_actual()
         
-        # Mostrar métricas en tiempo real
+        st.subheader("📊 Métricas Rápidas de Cartera")
+        
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
             total_cartera = cartera_completa['total_cop'].sum() if not cartera_completa.empty else 0
-            st.metric(
-                "CARTERA TOTAL", 
-                f"${total_cartera:,.0f}",
-                delta=None
-            )
+            st.metric("CARTERA TOTAL", f"${total_cartera:,.0f}")
         
         with col2:
             cartera_mora = cartera_completa[cartera_completa['dias_vencidos'] > 0]['total_cop'].sum() if not cartera_completa.empty else 0
-            st.metric(
-                "CARTERA EN MORA", 
-                f"${cartera_mora:,.0f}",
-                delta=None
-            )
+            st.metric("CARTERA EN MORA", f"${cartera_mora:,.0f}")
         
         with col3:
             total_clientes = cartera_completa['nit_cliente'].nunique() if not cartera_completa.empty else 0
@@ -662,10 +567,8 @@ def cartera_section():
         
         st.markdown("---")
         
-        # FILTROS DE BÚSQUEDA
         st.subheader("🔍 Filtros de Búsqueda")
         
-        # Fila 1: Búsqueda textual
         col_search1, col_search2, col_search3 = st.columns([1, 3, 1])
         with col_search1:
             st.write("🔍 Buscar:")
@@ -680,15 +583,15 @@ def cartera_section():
             if st.button("🧹 Limpiar", use_container_width=True, key="btn_limpiar_filtros"):
                 st.rerun()
         
-        # Fila 2: Filtros dropdown
         col_filtro1, col_filtro2, col_filtro3 = st.columns(3)
 
         with col_filtro1:
-            # ✅ CORREGIR: Obtener vendedores ASIGNADOS reales, no emails de usuarios
-            vendedores_disponibles = st.session_state.db.obtener_vendedores_asignados()  # Este método ya existe
+            vendedores_disponibles = st.session_state.db.obtener_vendedores_asignados()
+            # Agregar opción "Todos los vendedores"
+            opciones_vendedor = ["Todos los vendedores"] + vendedores_disponibles
             filtro_vendedor = st.selectbox(
                 "👤 Vendedor:",
-                options=vendedores_disponibles,
+                options=opciones_vendedor,
                 key="filtro_vendedor_cartera"
             )
         
@@ -715,27 +618,20 @@ def cartera_section():
                 key="filtro_dias_cartera"
             )
         
-        # BOTONES DE ACCIÓN
         st.markdown("---")
         col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 2])
 
         with col_btn1:
-            # ========== CORRECCIÓN: VERIFICAR PERMISOS PARA CARGAR EXCEL ==========
             user = st.session_state.get('user', {})
-            
-            # Solo admin y supervisor pueden cargar Excel
             if user.get('rol') in ['admin', 'supervisor']:
                 if st.button("📤 Cargar Excel", use_container_width=True, type="primary", key="btn_cargar_excel"):
                     st.session_state.mostrar_uploader = True
             else:
-                # Para otros usuarios, mostrar botón deshabilitado con mensaje claro
                 st.button("📤 Cargar Excel", 
                         disabled=True, 
                         use_container_width=True,
                         help="❌ Solo administradores y supervisores pueden cargar archivos Excel",
                         key="btn_cargar_excel_disabled")
-                
-                # Mostrar mensaje informativo adicional
                 st.caption("🔒 Función restringida a administradores y supervisores")
         
         with col_btn2:
@@ -743,14 +639,12 @@ def cartera_section():
                 st.rerun()
         
         with col_btn3:
+            # Validar que ultima_actualizacion no sea None antes de formatear
             if st.session_state.datos_actualizados and st.session_state.ultima_actualizacion:
                 st.info(f"📊 Datos actualizados: {st.session_state.ultima_actualizacion.strftime('%H:%M:%S')}")
         
-        # Mostrar uploader si está activado
         if st.session_state.get('mostrar_uploader', False):
-            # ========== CORRECCIÓN: VERIFICAR PERMISOS ANTES DE MOSTRAR UPLOADER ==========
             user = st.session_state.get('user', {})
-            
             if user.get('rol') in ['admin', 'supervisor']:
                 cargar_excel_cartera_streamlit()
             else:
@@ -758,21 +652,16 @@ def cartera_section():
                 st.session_state.mostrar_uploader = False
                 st.rerun()
         
-        # Cargar datos filtrados
         with st.spinner("Aplicando filtros..."):
             cartera_filtrada = cargar_datos_cartera_filtrados(texto_busqueda, filtro_vendedor, filtro_ciudad, filtro_dias)
             
         if st.session_state.cliente_seleccionado:
             mostrar_panel_cliente_detallado()
         else:
-            # VISTA COMPLETA DE DATOS (COMO EXCEL) - EXISTENTE
             st.subheader("📋 Vista Completa de Cartera")
             
             if not cartera_filtrada.empty:
-                # Mostrar información del dataset
                 st.info(f"📊 Mostrando {len(cartera_filtrada)} registros filtrados")
-                
-                # Mostrar tabla completa CON SELECCIÓN DE CLIENTE
                 mostrar_tabla_cartera_con_seleccion(cartera_filtrada)
             else:
                 st.warning("No hay datos para mostrar con los filtros actuales")
@@ -783,20 +672,16 @@ def cartera_section():
 def mostrar_tabla_cartera_con_seleccion(cartera_df):
     """Muestra la tabla de cartera con capacidad de seleccionar cliente"""
     
-    # Crear una copia para no modificar el original
     display_df = cartera_df.copy()
     
-    # Formatear columnas numéricas
     if 'total_cop' in display_df.columns:
         display_df['total_cop'] = display_df['total_cop'].apply(lambda x: f"${x:,.0f}")
     
     if 'dias_vencidos' in display_df.columns:
         display_df['dias_vencidos'] = display_df['dias_vencidos'].astype(int)
     
-    # NUEVO: Agregar columna de selección
     display_df['seleccionar'] = "👆 Seleccionar"
     
-    # Mostrar todas las columnas disponibles + selección
     columnas_mostrar = ['seleccionar'] + [col for col in display_df.columns if col != 'seleccionar']
     
     st.dataframe(
@@ -806,13 +691,11 @@ def mostrar_tabla_cartera_con_seleccion(cartera_df):
         hide_index=True
     )
     
-    # NUEVO: Selección de cliente
     st.subheader("👤 Seleccionar Cliente para Ver Detalles")
     
     col_sel1, col_sel2 = st.columns([3, 1])
     
     with col_sel1:
-        # Crear lista de clientes únicos para selección
         clientes_unicos = cartera_df[['nit_cliente', 'razon_social_cliente']].drop_duplicates()
         opciones_clientes = ["--- Selecciona un cliente ---"] + [
             f"{row['nit_cliente']} - {row['razon_social_cliente']}" 
@@ -827,7 +710,6 @@ def mostrar_tabla_cartera_con_seleccion(cartera_df):
     
     with col_sel2:
         if st.button("📋 Ver Detalles", use_container_width=True, key="btn_ver_detalles") and cliente_seleccionado != "--- Selecciona un cliente ---":
-            # Extraer NIT del cliente seleccionado
             nit_cliente = cliente_seleccionado.split(" - ")[0]
             seleccionar_cliente_para_detalles(nit_cliente)
 
@@ -848,7 +730,7 @@ def seleccionar_cliente_para_detalles(nit_cliente):
         st.error(f"❌ Error cargando datos del cliente: {e}")
 
 def mostrar_panel_cliente_detallado():
-    """Muestra el panel detallado del cliente seleccionado - VERSIÓN CORREGIDA"""
+    """Muestra el panel detallado del cliente seleccionado"""
     
     datos = st.session_state.datos_cliente_completos
     cliente = datos['cliente']
@@ -857,14 +739,10 @@ def mostrar_panel_cliente_detallado():
     st.markdown("---")
     st.header(f"👤 {cliente['razon_social']}")
     
-    # Botón para volver
     if st.button("← Volver a lista completa", type="secondary", key="btn_volver_lista"):
         st.session_state.cliente_seleccionado = None
         st.rerun()
     
-    # ====================
-    # SECCIÓN 1: DATOS DE CONTACTO
-    # ====================
     st.subheader("📞 Datos de Contacto")
     
     col_contact1, col_contact2 = st.columns(2)
@@ -879,12 +757,8 @@ def mostrar_panel_cliente_detallado():
         st.text_input("Ciudad", cliente.get('ciudad', 'No disponible') or 'No disponible', disabled=True, key="ciudad_display")
         st.text_input("Vendedor", cliente.get('vendedor_asignado', 'No asignado') or 'No asignado', disabled=True, key="vendedor_display")
     
-    # Dirección completa
     st.text_input("Dirección", cliente.get('direccion', 'No disponible') or 'No disponible', disabled=True, key="direccion_display")
     
-    # ====================
-    # SECCIÓN 2: RESUMEN CARTERA - ✅ CORREGIDO
-    # ====================
     st.subheader("💰 Resumen de Cartera")
     
     col_res1, col_res2, col_res3, col_res4 = st.columns(4)
@@ -901,13 +775,9 @@ def mostrar_panel_cliente_detallado():
     with col_res4:
         st.metric("Facturas Vencidas", resumen['facturas_vencidas'])
     
-    # ====================
-    # SECCIÓN 3: DETALLE DE FACTURAS
-    # ====================
     if not datos['cartera'].empty:
         st.subheader("📄 Detalle de Facturas")
         
-        # Separar facturas corrientes y vencidas
         facturas_corrientes = datos['cartera'][datos['cartera']['dias_vencidos'] == 0]
         facturas_vencidas = datos['cartera'][datos['cartera']['dias_vencidos'] > 0]
         
@@ -931,15 +801,10 @@ def mostrar_panel_cliente_detallado():
             else:
                 st.info("No hay facturas vencidas")
     
-    # ====================
-    # SECCIÓN 4: HISTORIAL DE GESTIONES
-    # ====================
     if not datos['gestiones'].empty:
         st.subheader("📊 Últimas Gestiones")
         
-        df_gestiones = datos['gestiones'].head(5).copy()  # Mostrar solo las 5 más recientes
-        
-        # Formatear para mostrar
+        df_gestiones = datos['gestiones'].head(5).copy()
         columnas_mostrar = ['fecha_contacto', 'tipo_contacto', 'resultado', 'observaciones']
         columnas_existentes = [col for col in columnas_mostrar if col in df_gestiones.columns]
         
@@ -951,9 +816,6 @@ def mostrar_panel_cliente_detallado():
     else:
         st.info("📝 No hay gestiones registradas para este cliente")
     
-    # ====================
-    # SECCIÓN 5: ACCIONES RÁPIDAS
-    # ====================
     st.markdown("---")
     st.subheader("🚀 Acciones Rápidas")
     
@@ -961,31 +823,21 @@ def mostrar_panel_cliente_detallado():
     
     with col_acc1:
         if st.button("💬 WhatsApp Cliente", use_container_width=True, key="btn_whatsapp_cliente"):
-
-            # ✅ MEJORA: VALIDACIÓN ROBUSTA DE AMBOS CAMPOS (CELULAR Y TELÉFONO)
-
             numero_whatsapp = None
             celular = cliente.get('celular')
             telefono = cliente.get('telefono')
             
-            # Función auxiliar para validar y limpiar número
             def validar_numero(numero_str):
                 if not numero_str or numero_str == 'No disponible':
                     return None
-                
-                # Convertir a string y limpiar
                 numero_limpio = ''.join(filter(str.isdigit, str(numero_str)))
-                
-                # Validar que sea un número colombiano (10 dígitos)
                 if len(numero_limpio) == 10 and numero_limpio.startswith(('3', '2', '1')):
                     return numero_limpio
                 return None
             
-            # Validar ambos campos exhaustivamente
             numero_celular_valido = validar_numero(celular)
             numero_telefono_valido = validar_numero(telefono)
             
-            # Priorizar celular válido, luego teléfono válido
             if numero_celular_valido:
                 numero_whatsapp = numero_celular_valido
                 tipo_numero = "celular"
@@ -996,7 +848,6 @@ def mostrar_panel_cliente_detallado():
                 numero_whatsapp = None
             
             if numero_whatsapp:
-                # Agregar prefijo internacional para Colombia
                 numero_final = f"57{numero_whatsapp}"
                 enlace_whatsapp = f"https://wa.me/{numero_final}"
                 
@@ -1008,10 +859,7 @@ def mostrar_panel_cliente_detallado():
                 - 🔍 **Tipo:** {tipo_numero.capitalize()}
                 """)
                 
-                # Mostrar enlace directo como botón adicional
                 st.link_button("📱 Abrir Conversación WhatsApp", enlace_whatsapp)
-                
-                # Debug info (opcional)
                 st.caption(f"🔍 Validación: Celular='{celular}' → {numero_celular_valido} | Teléfono='{telefono}' → {numero_telefono_valido}")
             else:
                 st.warning("📵 No hay número de contacto válido para WhatsApp")
@@ -1030,21 +878,17 @@ def mostrar_panel_cliente_detallado():
         if st.button("📧 Email Corporativo", use_container_width=True, key="btn_email_corporativo"):
             email = cliente.get('email')
             if email and email != 'No disponible' and '@' in str(email):
-                # Obtener facturas vencidas del cliente
                 facturas_vencidas = datos['cartera'][datos['cartera']['dias_vencidos'] > 0]
                 
                 if not facturas_vencidas.empty:
-                    # Calcular variables para la plantilla
                     razon_social = cliente.get('razon_social', 'Cliente')
                     nit = cliente.get('nit_cliente', 'N/A')
                     cantidad_facturas = len(facturas_vencidas)
                     total_mora = facturas_vencidas['total_cop'].sum()
                     max_dias_mora = facturas_vencidas['dias_vencidos'].max()
                     
-                    # Formatear valores
                     total_mora_formateado = f"{total_mora:,.0f}"
                     
-                    # Plantilla de email CORPORATIVA
                     asunto = "RECORDATORIO DE PAGO - ALPAPEL SAS"
                     cuerpo = f"""Señores
 {razon_social}
@@ -1075,7 +919,6 @@ Cordialmente,
 ALPAPEL S.A.S
 860.524.523-1"""
                     
-                    # Codificar para URL
                     asunto_codificado = asunto.replace(' ', '%20')
                     cuerpo_codificado = cuerpo.replace('\n', '%0D%0A').replace(' ', '%20')
                     
@@ -1090,21 +933,19 @@ ALPAPEL S.A.S
                     - ⏰ **Hasta {max_dias_mora} días** de mora
                     """)
                     
-                    # Mostrar enlace directo como botón adicional
                     st.link_button("📧 Abrir Email Corporativo", enlace_email)
                     
                 else:
-                    # Cliente SIN facturas vencidas - Email vacío
                     enlace_email = f"mailto:{email}"
                     
                     st.success(f"📧 Email listo para: {email}")
-                    st.info("""
+                    # CORREGIDO: ahora es un f-string
+                    st.info(f"""
                     **Cliente al día - Email vacío:**
                     - 📧 **Destinatario:** {email}
                     - 📝 **Asunto y cuerpo:** Vacíos para redacción personalizada
                     """)
                     
-                    # Mostrar enlace directo como botón adicional
                     st.link_button("📧 Abrir Email", enlace_email)
             else:
                 st.warning("📧 No hay dirección de email válida disponible")
@@ -1112,32 +953,24 @@ ALPAPEL S.A.S
     with col_acc3:
         if st.button("📋 Ir a Gestión", use_container_width=True, key="btn_ir_gestion"):
             if st.session_state.cliente_seleccionado:
-                # ✅ GUARDAR CLIENTE PARA GESTIÓN
                 st.session_state.cliente_para_gestion = st.session_state.cliente_seleccionado
                 st.session_state.ir_a_gestion = True
-                
-                # ✅ FORZAR CAMBIO DE SECCIÓN INMEDIATAMENTE
                 st.session_state.section = "📞 Gestión"
                 
                 st.success("🔄 Navegando a Gestión...")
-                
-                # ✅ DELAY CORTO Y RERUN FORZADO
-                import time
                 time.sleep(0.3)
                 st.rerun()
             else:
                 st.error("❌ No hay cliente seleccionado")
 
 def cargar_datos_cartera_filtrados(texto_busqueda, filtro_vendedor, filtro_ciudad, filtro_dias):
-    """Carga los datos de cartera aplicando filtros - VERSIÓN MEJORADA"""
+    """Carga los datos de cartera aplicando filtros"""
     try:
-        # Obtener datos base según permisos de usuario
         cartera_base = st.session_state.db.obtener_cartera_actual()
         
         if cartera_base.empty:
             return pd.DataFrame()
         
-        # Aplicar filtro de texto si existe
         if texto_busqueda and texto_busqueda.strip():
             texto = texto_busqueda.lower().strip()
             mask = (
@@ -1150,11 +983,9 @@ def cargar_datos_cartera_filtrados(texto_busqueda, filtro_vendedor, filtro_ciuda
         else:
             cartera_filtrada = cartera_base.copy()
         
-        # Aplicar filtro de vendedor
         if filtro_vendedor and filtro_vendedor != "Todos los vendedores":
             cartera_filtrada = cartera_filtrada[cartera_filtrada['nombre_vendedor'] == filtro_vendedor]
         
-        # Aplicar filtro de ciudad (necesita join con clientes)
         if filtro_ciudad and filtro_ciudad != "Todas las ciudades":
             try:
                 clientes = st.session_state.db.obtener_clientes()
@@ -1162,13 +993,17 @@ def cargar_datos_cartera_filtrados(texto_busqueda, filtro_vendedor, filtro_ciuda
                     cartera_filtrada = cartera_filtrada.merge(
                         clientes[['nit_cliente', 'ciudad']], 
                         on='nit_cliente', 
-                        how='left'
+                        how='left',
+                        suffixes=('', '_cliente')
                     )
-                    cartera_filtrada = cartera_filtrada[cartera_filtrada['ciudad_y'] == filtro_ciudad]
+                    cartera_filtrada = cartera_filtrada[cartera_filtrada['ciudad_cliente'] == filtro_ciudad]
+                    # Eliminar columna duplicada y renombrar
+                    if 'ciudad' in cartera_filtrada.columns and 'ciudad_cliente' in cartera_filtrada.columns:
+                        cartera_filtrada = cartera_filtrada.drop(columns=['ciudad'])
+                        cartera_filtrada = cartera_filtrada.rename(columns={'ciudad_cliente': 'ciudad'})
             except Exception as e:
                 print(f"⚠️ Error filtrando por ciudad: {e}")
         
-        # Aplicar filtro de días vencidos
         if filtro_dias != "Todos los días":
             if filtro_dias == "0 días (Corriente)":
                 cartera_filtrada = cartera_filtrada[cartera_filtrada['dias_vencidos'] == 0]
@@ -1189,18 +1024,16 @@ def cargar_datos_cartera_filtrados(texto_busqueda, filtro_vendedor, filtro_ciuda
         return pd.DataFrame()
 
 def mostrar_tabla_cartera(cartera_df):
-    """Muestra la tabla de cartera con todas las columnas"""
+    """Muestra la tabla de cartera con todas las columnas (formato original)"""
     if cartera_df.empty:
         st.warning("No se encontraron registros con los filtros aplicados")
         return
     
-    # Definir columnas a mostrar
     columnas = [
         "NIT Cliente", "Razón Social", "Vendedor", "Factura", "Total COP", 
         "Fecha Emisión", "Fecha Vcto", "Días Vencidos", "Condición Pago", "Ciudad"
     ]
     
-    # Mapeo de columnas de la base de datos
     mapeo_columnas = {
         'nit_cliente': 'NIT Cliente',
         'razon_social_cliente': 'Razón Social', 
@@ -1214,23 +1047,18 @@ def mostrar_tabla_cartera(cartera_df):
         'ciudad': 'Ciudad'
     }
     
-    # Crear DataFrame para mostrar
     display_df = cartera_df.copy()
     
-    # Renombrar columnas
     for col_orig, col_nuevo in mapeo_columnas.items():
         if col_orig in display_df.columns:
             display_df = display_df.rename(columns={col_orig: col_nuevo})
     
-    # Seleccionar solo las columnas que existen
     columnas_existentes = [col for col in columnas if col in display_df.columns]
     display_df = display_df[columnas_existentes]
     
-    # Formatear columnas
     if 'Total COP' in display_df.columns:
         display_df['Total COP'] = display_df['Total COP'].apply(lambda x: f"${x:,.0f}")
     
-    # Mostrar tabla
     st.dataframe(
         display_df,
         use_container_width=True,
@@ -1238,7 +1066,6 @@ def mostrar_tabla_cartera(cartera_df):
         hide_index=True
     )
     
-    # Mostrar resumen
     total_cartera = cartera_df['total_cop'].sum() if 'total_cop' in cartera_df.columns else 0
     total_registros = len(cartera_df)
     st.success(f"**Resumen:** {total_registros} registros | **Valor total:** ${total_cartera:,.0f}")
@@ -1246,17 +1073,14 @@ def mostrar_tabla_cartera(cartera_df):
 def mostrar_tabla_cartera_completa(cartera_df):
     """Muestra la tabla de cartera completa con todas las columnas disponibles"""
     
-    # Crear una copia para no modificar el original
     display_df = cartera_df.copy()
     
-    # Formatear columnas numéricas
     if 'total_cop' in display_df.columns:
         display_df['total_cop'] = display_df['total_cop'].apply(lambda x: f"${x:,.0f}")
     
     if 'dias_vencidos' in display_df.columns:
         display_df['dias_vencidos'] = display_df['dias_vencidos'].astype(int)
     
-    # Mostrar todas las columnas disponibles
     st.dataframe(
         display_df,
         use_container_width=True,
@@ -1264,7 +1088,6 @@ def mostrar_tabla_cartera_completa(cartera_df):
         hide_index=True
     )
     
-    # Opciones de exportación
     col_exp1, col_exp2 = st.columns(2)
     
     with col_exp1:
@@ -1281,16 +1104,14 @@ def mostrar_tabla_cartera_completa(cartera_df):
     
     with col_exp2:
         if st.button("📋 Copiar al Portapapeles", use_container_width=True, key="btn_copy_clipboard"):
-            # Crear una versión para copiar
             copy_df = display_df.copy()
-            # Remover formato de dinero para mejor copiado
             if 'total_cop' in copy_df.columns:
                 copy_df['total_cop'] = cartera_df['total_cop']
             
             st.success("✅ Datos copiados al portapapeles (puedes pegarlos en Excel)")    
 
 def cargar_excel_cartera_streamlit():
-    """Función para cargar Excel en Streamlit - VERSIÓN MEJORADA"""
+    """Función para cargar Excel en Streamlit"""
     
     st.subheader("📤 Cargar Archivo Excel de Cartera")
     
@@ -1301,7 +1122,6 @@ def cargar_excel_cartera_streamlit():
     )
     
     if uploaded_file is not None:
-        # Mostrar información del archivo
         file_details = {
             "Nombre": uploaded_file.name,
             "Tipo": uploaded_file.type,
@@ -1310,9 +1130,7 @@ def cargar_excel_cartera_streamlit():
         st.write("**Archivo seleccionado:**")
         st.json(file_details)
         
-        # Botón para confirmar la carga
         if st.button("🚀 Iniciar Carga del Archivo", use_container_width=True, type="primary", key="btn_iniciar_carga"):
-            # Guardar el archivo en session_state
             st.session_state.archivo_data = uploaded_file.getvalue()
             st.session_state.archivo_nombre = uploaded_file.name
             st.session_state.carga_en_progreso = True
@@ -1326,59 +1144,41 @@ def procesar_carga_excel():
     try:
         st.info("🔄 Iniciando proceso de carga...")
         
-        # Crear elementos de UI para el progreso
         progress_bar = st.progress(0)
         status_text = st.empty()
         
-        # Paso 1: Guardar archivo temporal
         status_text.text("📁 Paso 1/4: Guardando archivo...")
-        try:
-            with open("temp_cartera.xlsx", "wb") as f:
-                f.write(st.session_state.archivo_data)
-            progress_bar.progress(25)
-            time.sleep(1)
-        except Exception as e:
-            st.error(f"❌ Error guardando archivo: {str(e)}")
-            st.session_state.carga_en_progreso = False
-            return
+        # Usar archivo temporal con nombre único
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+            tmp.write(st.session_state.archivo_data)
+            tmp_path = tmp.name
+        progress_bar.progress(25)
         
-        # Paso 2: Validar archivo
         status_text.text("🔍 Paso 2/4: Validando Excel...")
-        try:
-            test_df = pd.read_excel("temp_cartera.xlsx", nrows=5)
-            progress_bar.progress(50)
-            time.sleep(1)
-        except Exception as e:
-            st.error(f"❌ Error validando Excel: {str(e)}")
-            st.session_state.carga_en_progreso = False
-            return
+        test_df = pd.read_excel(tmp_path, nrows=5)
+        progress_bar.progress(50)
         
-        # Paso 3: Cargar a base de datos
         status_text.text("💾 Paso 3/4: Cargando a base de datos...")
-        try:
-            success, message = st.session_state.db.cargar_excel_cartera("temp_cartera.xlsx")
-            progress_bar.progress(75)
-            time.sleep(1)
-        except Exception as e:
-            st.error(f"❌ Error en la carga: {str(e)}")
-            st.session_state.carga_en_progreso = False
-            return
+        success, message = st.session_state.db.cargar_excel_cartera(tmp_path)
+        progress_bar.progress(75)
         
-        # Paso 4: Finalizar
+        # Eliminar archivo temporal
+        os.unlink(tmp_path)
+        
         status_text.text("✅ Paso 4/4: Finalizando...")
         progress_bar.progress(100)
         
         if success:
             st.success(f"✅ {message}")
             
-            # Actualizar estado
             st.session_state.datos_actualizados = True
             st.session_state.ultima_actualizacion = datetime.now()
             st.session_state.mostrar_uploader = False
             
             st.info("🔄 Usa 'Actualizar Vista' para ver los nuevos datos")
+        else:
+            st.error(f"❌ {message}")
         
-        # Finalizar estado
         st.session_state.carga_en_progreso = False
         time.sleep(2)
         st.rerun()
@@ -1390,7 +1190,6 @@ def procesar_carga_excel():
 def procesar_archivo_excel(uploaded_file):
     """Procesa el archivo subido y registra la actualización en la DB"""
     try:
-        # Evitar múltiples ejecuciones
         if st.session_state.get('carga_en_progreso', False):
             return
             
@@ -1398,20 +1197,16 @@ def procesar_archivo_excel(uploaded_file):
         progress_bar = st.progress(0)
         status_text = st.empty()
         
-        # Paso 1: Lectura
         status_text.text("📂 Paso 1/4: Leyendo archivo Excel...")
         df = pd.read_excel(uploaded_file)
         progress_bar.progress(25)
         time.sleep(0.5)
         
-        # Paso 2: Procesamiento en Base de Datos
-        status_text.text("⚙️ Paso 2/4: Actualizando registros en ALPAPEL...")
-        # Llamamos al método que ya tienes en database.py para procesar el DF
+        status_text.text("⚙️ Paso 2/4: Actualizando registros...")
         success, message = st.session_state.db.procesar_datos_cartera(df)
         progress_bar.progress(60)
         
         if success:
-            # Paso 3: Registro de la marca de tiempo (El nuevo método que agregaste a database.py)
             status_text.text("💾 Paso 3/4: Registrando fecha de actualización...")
             st.session_state.db.registrar_actualizacion_cartera(
                 st.session_state.user['email'], 
@@ -1420,12 +1215,10 @@ def procesar_archivo_excel(uploaded_file):
             progress_bar.progress(85)
             time.sleep(0.5)
             
-            # Paso 4: Finalización
             status_text.text("✅ Paso 4/4: ¡Todo listo!")
             progress_bar.progress(100)
             st.success(f"Carga exitosa: {message}")
             
-            # Actualizar estados de la aplicación
             st.session_state.datos_actualizados = True
             st.session_state.ultima_actualizacion = datetime.now()
             st.session_state.mostrar_uploader = False
@@ -1446,8 +1239,7 @@ def analisis_cartera_section():
     cartera_analisis()
 
 def analisis_gestion_section():
-    """Sección de Análisis de Gestión - CON FILTROS DINÁMICOS"""
-    # Esta línea ya importa el módulo actualizado con los filtros dinámicos
+    """Sección de Análisis de Gestión"""
     from analisis_gestion_module import analisis_gestion_section as gestion_analisis
     gestion_analisis()
 
