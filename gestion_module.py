@@ -16,6 +16,9 @@ def gestion_section():
         st.session_state.cliente_seleccionado_gestion = None
         st.session_state.todos_los_clientes = cargar_todos_los_clientes()
         st.session_state.clientes_filtrados = st.session_state.todos_los_clientes.copy()
+        # ✅ Inicializar variables de búsqueda y filtros (¡NUEVAS LÍNEAS!)
+        st.session_state.texto_busqueda_gestion = ""
+        st.session_state.filtro_actual_gestion = "Todos los clientes"
         st.session_state.gestion_initialized = True
 
     st.header("📋 Gestión de Cartera ALPAPEL")
@@ -42,7 +45,6 @@ def gestion_section():
             st.markdown("---")
             c1, c2 = st.columns(2)
             with c1:
-                # AQUÍ ESTÁ EL CAMBIO: Llamamos a la función con el decorador @st.dialog
                 if st.button("📝 Registrar Gestión", use_container_width=True, type="primary"):
                     mostrar_formulario_gestion_dialog()
             
