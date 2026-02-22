@@ -137,7 +137,7 @@ def generar_pdf_estado_cuenta(cliente_data, cartera_df):
     pago_soporte = (
         "Si realizó pagos que no están reflejados aún, por favor envíe el soporte al "
         "<b>3184776379 – 3233255021</b> y estar a la espera de su aplicación.<br/><br/>"
-        "<b>Cuentas habilitadas:</b>"
+        "<b>UNICAS cuentas habilitadas:</b>"
     )
     story.append(Paragraph(pago_soporte, bank_style))
     
