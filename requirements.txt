@@ -13,3 +13,4 @@ google-auth-oauthlib
 python-docx
 docxtpl
 fpdf2
+pytz
