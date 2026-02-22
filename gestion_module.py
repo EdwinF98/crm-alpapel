@@ -11,121 +11,53 @@ from reporte_pdf import generar_pdf_estado_cuenta
 import os
 
 def gestion_section():
-    """Sección completa de Gestión de Clientes - VERSIÓN PDF UNIFICADA CON PLANTILLA WORD"""
-    
-    # 1. INICIALIZACIÓN DE SEGURIDAD DEL ESTADO
+    """Sección principal optimizada con llamadas a Dialog"""
     if 'gestion_initialized' not in st.session_state:
-        st.session_state.gestion_initialized = True
         st.session_state.cliente_seleccionado_gestion = None
-        st.session_state.historial_gestiones = pd.DataFrame()
-        st.session_state.filtro_actual_gestion = "Todos los clientes"
-        st.session_state.texto_busqueda_gestion = ""
-        st.session_state.todos_los_clientes = pd.DataFrame()
-        st.session_state.clientes_filtrados = pd.DataFrame()
-        st.session_state.cartera_cliente_actual = pd.DataFrame()
-        st.session_state.mostrar_formulario_gestion = False
-
-    # 2. LÓGICA DE NAVEGACIÓN (Recibir cliente desde Cartera)
-    if st.session_state.get('cliente_para_gestion') and not st.session_state.cliente_seleccionado_gestion:
-        nit_destino = st.session_state.cliente_para_gestion
-        
-        # Cargar clientes si está vacío
-        if st.session_state.todos_los_clientes.empty:
-            st.session_state.todos_los_clientes = cargar_todos_los_clientes()
-            st.session_state.clientes_filtrados = st.session_state.todos_los_clientes.copy()
-        
-        # Ejecutar selección
-        seleccionar_cliente_desde_cartera(nit_destino)
-        st.session_state.cliente_para_gestion = None
-
-    # Carga de seguridad inicial
-    if st.session_state.todos_los_clientes.empty:
         st.session_state.todos_los_clientes = cargar_todos_los_clientes()
         st.session_state.clientes_filtrados = st.session_state.todos_los_clientes.copy()
+        st.session_state.gestion_initialized = True
 
-    # 3. INTERFAZ GRÁFICA
-    st.header("📋 Gestión de Cartera y Cobranza")
-
-    # Renderizar barra lateral y filtros
+    st.header("📋 Gestión de Cartera ALPAPEL")
     mostrar_busqueda_filtros()
     
-    # Layout Principal: Lista (Izquierda) | Detalle (Derecha)
     col_lista, col_detalle = st.columns([1, 2.5])
 
     with col_lista:
         mostrar_lista_clientes()
 
     with col_detalle:
-        # Solo mostrar si hay cliente seleccionado
-        if st.session_state.cliente_seleccionado_gestion is not None:
+        if st.session_state.cliente_seleccionado_gestion:
             cliente = st.session_state.cliente_seleccionado_gestion
+            st.subheader(f"🏢 {cliente['razon_social']}")
             
-            # --- ENCABEZADO CLIENTE ---
-            nombre_cliente = cliente.get('nombre_cliente') or cliente.get('razon_social') or 'CLIENTE SIN NOMBRE'
-            nit_cliente = cliente.get('nit_cliente') or 'N/A'
-            
-            st.subheader(f"🏢 {nombre_cliente}")
-            st.info(f"**NIT:** {nit_cliente}  |  **Vendedor:** {cliente.get('vendedor_asignado', 'No asignado')}")
+            # --- KPI'S ---
+            resumen = st.session_state.analisis_cartera
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Saldo Total", f"${resumen['total_cartera']:,.0f}")
+            m2.metric("En Mora", f"${resumen['cartera_mora']:,.0f}", delta_color="inverse")
+            m3.metric("Días Máx", f"{int(resumen['dias_mora_max'])} días")
 
-            # --- KPI'S (Saldos) ---
-            cartera = st.session_state.cartera_cliente_actual
-            if not cartera.empty:
-                # Determinar columna de monto (saldo o total_cop)
-                col_monto = 'saldo' if 'saldo' in cartera.columns else 'total_cop'
-                total = cartera[col_monto].sum()
-                vencido = cartera[cartera['dias_vencidos'] > 0][col_monto].sum()
-                
-                m1, m2, m3 = st.columns(3)
-                m1.metric("Saldo Total", f"${total:,.0f}")
-                m2.metric("Vencido", f"${vencido:,.0f}", delta_color="inverse")
-                m3.metric("Facturas", len(cartera))
-            
+            # --- ACCIONES ---
             st.markdown("---")
-            st.write("### 🛠️ Acciones")
-
-            # --- BOTONES DE ACCIÓN UNIFICADOS ---
-            col_accion_1, col_accion_2 = st.columns(2)
+            c1, c2 = st.columns(2)
+            with c1:
+                # AQUÍ ESTÁ EL CAMBIO: Llamamos a la función con el decorador @st.dialog
+                if st.button("📝 Registrar Gestión", use_container_width=True, type="primary"):
+                    mostrar_formulario_gestion_dialog()
             
-            with col_accion_1:
-                # Botón para abrir formulario de gestión
-                if st.button("📝 Registrar Nueva Gestión", use_container_width=True, type="primary"):
-                    st.session_state.mostrar_formulario_gestion = True
-            
-            with col_accion_2:
-                # GENERACIÓN DE PDF DESDE LA PLANTILLA WORD
+            with c2:
                 try:
-                    # Llamamos a la función de reporte_pdf.py
-                    pdf_buffer = generar_pdf_estado_cuenta(cliente, cartera)
-                    
-                    if pdf_buffer:
-                        # Nombre del archivo basado en el cliente
-                        nombre_limpio = str(nombre_cliente).replace(" ", "_").upper()
-                        nombre_archivo = f"Estado_Cuenta_ALPAPEL_{nombre_limpio}.pdf"
-                        
-                        st.download_button(
-                            label="📄 Descargar Estado de Cuenta (PDF)",
-                            data=pdf_buffer,
-                            file_name=nombre_archivo,
-                            mime="application/pdf",
-                            use_container_width=True
-                        )
-                except Exception as e:
-                    st.error(f"Error al generar el documento: {e}")
-                    st.warning("Verifica que 'assets/Formato ALPAPEL SAS.docx' sea accesible.")
+                    pdf = generar_pdf_estado_cuenta(cliente, st.session_state.cartera_cliente_actual)
+                    st.download_button("📄 Bajar Estado Cuenta", data=pdf, 
+                                     file_name=f"Estado_{cliente['nit_cliente']}.pdf", 
+                                     mime="application/pdf", use_container_width=True)
+                except:
+                    st.error("Error PDF")
 
-            # --- FORMULARIO Y TABLAS ---
-            if st.session_state.mostrar_formulario_gestion:
-                mostrar_formulario_gestion()
-
-            with st.expander("🔍 Ver Detalle de Facturas (Tabla)", expanded=False):
-                st.dataframe(cartera, use_container_width=True)
-                
             mostrar_historial_gestiones()
-
         else:
-            # Estado vacío (ningún cliente seleccionado)
-            st.info("👈 Selecciona un cliente del listado lateral para ver su información.")
-            mostrar_estadisticas_generales_compactas()
+            st.info("👈 Selecciona un cliente para empezar")
 
 def mostrar_botones_exportacion_importacion():
     """Muestra los botones de exportación/importación - SIEMPRE VISIBLES"""
@@ -208,39 +140,57 @@ def mostrar_busqueda_filtros():
     st.info(f"📊 {len(st.session_state.clientes_filtrados)} de {len(st.session_state.todos_los_clientes)} clientes")
 
 def mostrar_lista_clientes():
-    """Muestra la lista de clientes - VERSIÓN CORREGIDA"""
-    
+    """Muestra la lista de clientes evitando el bucle de reseteo de pantalla"""
     st.subheader("👥 Lista de Clientes")
     
     if not st.session_state.clientes_filtrados.empty:
-        # Crear lista de opciones
-        opciones_lista = ["--- Selecciona un cliente para gestionar ---"]
-        # Diccionario para mapear texto visible a índice
-        opciones_dict = {}
+        opciones_lista = ["--- Selecciona un cliente ---"]
+        clientes_df = st.session_state.clientes_filtrados
         
-        for idx, cliente in st.session_state.clientes_filtrados.iterrows():
-            # Usar razon_social directamente (ya debería estar también como nombre_cliente)
-            nombre = cliente.get('razon_social') or cliente.get('nombre_cliente') or "Cliente sin nombre"
-            nit = str(cliente['nit_cliente']).strip()
-            texto_visible = f"{nit} - {nombre}"
-            opciones_lista.append(texto_visible)
-            opciones_dict[texto_visible] = idx  # Guardar el índice, no el NIT
+        for _, row in clientes_df.iterrows():
+            opciones_lista.append(f"{row['nit_cliente']} - {row['razon_social']}")
         
-        # Selectbox
-        texto_seleccionado = st.selectbox(
+        # Determinar el índice actual para que el selectbox no se mueva solo
+        index_actual = 0
+        if st.session_state.cliente_seleccionado_gestion:
+            nit_actual = st.session_state.cliente_seleccionado_gestion['nit_cliente']
+            for i, opt in enumerate(opciones_lista):
+                if nit_actual in opt:
+                    index_actual = i
+                    break
+
+        seleccion = st.selectbox(
             "Seleccionar Cliente:",
             options=opciones_lista,
-            key="lista_clientes_select_box",
+            index=index_actual,
+            key="selector_maestro_gestion",
             label_visibility="collapsed"
         )
         
-        # Procesar selección
-        if texto_seleccionado and texto_seleccionado != "--- Selecciona un cliente para gestionar ---":
-            idx_seleccionado = opciones_dict[texto_seleccionado]
-            cliente_seleccionado = st.session_state.clientes_filtrados.iloc[idx_seleccionado]
-            seleccionar_cliente(cliente_seleccionado)
+        if seleccion != "--- Selecciona un cliente ---":
+            nit_nuevo = seleccion.split(" - ")[0].strip()
+            # SOLO seleccionamos si es un cliente distinto al cargado
+            if not st.session_state.cliente_seleccionado_gestion or \
+               st.session_state.cliente_seleccionado_gestion['nit_cliente'] != nit_nuevo:
+                
+                cliente_row = clientes_df[clientes_df['nit_cliente'] == nit_nuevo].iloc[0]
+                ejecutar_seleccion_limpia(cliente_row)
     else:
-        st.warning("⚠️ No se encontraron clientes con los filtros aplicados.")
+        st.warning("No hay clientes con esos filtros.")
+
+def ejecutar_seleccion_limpia(cliente_row):
+    """Carga los datos del cliente sin resetear variables de interfaz"""
+    db = st.session_state.db
+    cliente_dict = cliente_row.to_dict()
+    nit = str(cliente_dict['nit_cliente'])
+    
+    # Cargar datos pesados a la sesión
+    st.session_state.cliente_seleccionado_gestion = cliente_dict
+    df_cartera = db.obtener_cartera_actual()
+    st.session_state.cartera_cliente_actual = df_cartera[df_cartera['nit_cliente'] == nit]
+    st.session_state.analisis_cartera = calcular_analisis_cartera(st.session_state.cartera_cliente_actual)
+    st.session_state.historial_gestiones = db.obtener_gestiones_cliente(nit)
+    st.rerun()
 
 def mostrar_informacion_cliente():
     """Muestra el detalle completo, saldos y acciones del cliente seleccionado"""
@@ -333,91 +283,66 @@ def mostrar_informacion_cliente():
         else:
             st.info("No hay facturas corrientes pendientes.")
 
-def mostrar_formulario_gestion():
-    """Muestra el formulario para registrar nueva gestión"""
+@st.dialog("📝 Registrar Nueva Gestión")
+def mostrar_formulario_gestion_dialog():
+    """Formulario moderno en ventana emergente (Pop-up) con lógica inteligente"""
+    cliente = st.session_state.cliente_seleccionado_gestion
+    st.write(f"**Cliente:** {cliente.get('razon_social')}")
     
-    st.markdown("---")
-    st.subheader("➕ Registrar Nueva Gestión")
-    
-    with st.form("formulario_gestion_compacto", clear_on_submit=True):
-        # Campos en columnas compactas
+    with st.container():
         col1, col2 = st.columns(2)
-        
         with col1:
             tipo_contacto = st.selectbox(
                 "Tipo de Contacto:",
-                options=[
-                    "Llamada telefónica", "WhatsApp", "Correo electrónico",
-                    "Visita presencial", "Videollamada", "Mensaje de texto"
-                ],
-                key="tipo_contacto_gestion_compact"
+                options=["Llamada telefónica", "WhatsApp", "Correo electrónico", "Visita presencial"]
             )
-            
-            fecha_contacto = st.date_input(
-                "Fecha de Contacto:",
-                value=datetime.now().date(),
-                key="fecha_contacto_gestion_compact"
-            )
+            fecha_contacto = st.date_input("Fecha de Contacto:", value=datetime.now().date())
         
         with col2:
-            resultado = st.selectbox(
-                "Resultado:",
-                options=obtener_opciones_resultado(),
-                key="resultado_gestion_compact"
-            )
+            opciones = obtener_opciones_resultado()
+            # Quitamos los encabezados de categoría para que no los elijan por error
+            opciones_limpias = [opt for opt in opciones if opt.strip() and not opt.startswith(("💰", "📞", "⚠️", "🔄"))]
+            resultado = st.selectbox("Resultado de la Gestión:", options=opciones_limpias)
+
+        # --- LÓGICA DINÁMICA PARA PROMESAS ---
+        es_promesa = "Promesa" in resultado or "Acuerdo" in resultado
+        
+        if es_promesa:
+            st.markdown("### 💰 Detalle de la Promesa")
+            c3, c4 = st.columns(2)
+            with c3:
+                promesa_fecha = st.date_input("¿Para cuándo prometió pago?", value=datetime.now().date() + timedelta(days=5))
+            with c4:
+                promesa_monto = st.number_input("Monto de la promesa ($):", min_value=0.0, step=100000.0, format="%.0f")
             
-            proxima_gestion = st.date_input(
-                "Próxima Gestión:",
-                value=datetime.now().date() + pd.Timedelta(days=7),
-                key="proxima_gestion_compact"
-            )
-        
-        # Promesa de pago compacta
-        col3, col4 = st.columns(2)
-        
-        with col3:
-            promesa_fecha = st.date_input(
-                "Promesa Pago - Fecha:",
-                value=datetime.now().date() + pd.Timedelta(days=15),
-                key="promesa_fecha_gestion_compact"
-            )
-        
-        with col4:
-            promesa_monto = st.number_input(
-                "Promesa Pago - Monto:",
-                min_value=0.0,
-                value=0.0,
-                step=1000.0,
-                format="%.0f",
-                key="promesa_monto_gestion_compact"
-            )
-        
-        # Observaciones compacta
-        observaciones = st.text_area(
-            "Observaciones:",
-            placeholder="Detalles de la gestión, acuerdos, comentarios...",
-            height=80,
-            key="observaciones_gestion_compact"
-        )
-        
-        # Botón de guardar compacto
-        guardar_gestion = st.form_submit_button(
-            "💾 Guardar Gestión",
-            use_container_width=True,
-            type="primary"
-        )
-        
-        if guardar_gestion:
-            success = guardar_nueva_gestion(
-                tipo_contacto, resultado, fecha_contacto, observaciones,
-                promesa_fecha, promesa_monto, proxima_gestion
-            )
-            
-            if success:
-                st.success("✅ Gestión guardada correctamente")
-                # Recargar historial
-                cliente = st.session_state.cliente_seleccionado_gestion
-                st.session_state.historial_gestiones = cargar_historial_gestiones_cliente(cliente['nit_cliente'])
+            # Sugerencia automática de próxima gestión (2 días después de la promesa)
+            sugerencia_prox = promesa_fecha + timedelta(days=2)
+        else:
+            promesa_fecha = None
+            promesa_monto = 0
+            # Sugerencia estándar (7 días)
+            sugerencia_prox = datetime.now().date() + timedelta(days=7)
+
+        st.markdown("---")
+        c5, c6 = st.columns(2)
+        with c5:
+            proxima_gestion = st.date_input("📅 Agendar Próximo Seguimiento:", value=sugerencia_prox)
+        with c6:
+            st.info("💡 La fecha se ajusta automáticamente según el resultado.")
+
+        observaciones = st.text_area("Observaciones Detalladas:", placeholder="Escribe aquí los acuerdos alcanzados...", height=100)
+
+        if st.button("💾 Guardar Gestión Final", use_container_width=True, type="primary"):
+            if not observaciones:
+                st.error("Por favor agrega una observación.")
+            else:
+                success = guardar_nueva_gestion(
+                    tipo_contacto, resultado, fecha_contacto, observaciones,
+                    promesa_fecha, promesa_monto, proxima_gestion
+                )
+                if success:
+                    st.success("¡Gestión Guardada!")
+                    st.rerun() # Esto cierra el dialog automáticamente
 
 def mostrar_historial_gestiones():
     """Muestra el historial de gestiones del cliente con información del usuario"""
