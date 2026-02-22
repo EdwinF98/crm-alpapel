@@ -16,7 +16,6 @@ def gestion_section():
         st.session_state.cliente_seleccionado_gestion = None
         st.session_state.todos_los_clientes = cargar_todos_los_clientes()
         st.session_state.clientes_filtrados = st.session_state.todos_los_clientes.copy()
-        # ✅ Inicializar variables de búsqueda y filtros (¡NUEVAS LÍNEAS!)
         st.session_state.texto_busqueda_gestion = ""
         st.session_state.filtro_actual_gestion = "Todos los clientes"
         st.session_state.gestion_initialized = True
@@ -909,27 +908,47 @@ def importar_gestiones_desde_archivo(archivo_subido):
         st.info("💡 Verifica que el archivo no esté corrupto y tenga el formato correcto")
 
 def cargar_todos_los_clientes():
-    """Carga TODOS los clientes disponibles - VERSIÓN ROBUSTA"""
+    """Carga TODOS los clientes disponibles - VERSIÓN ROBUSTA CON SINCRONIZACIÓN Y DIAGNÓSTICO"""
     try:
         db = st.session_state.db
-        clientes = db.obtener_clientes()
-        
-        if clientes.empty:
-            st.warning("⚠️ No se encontraron clientes en la base de datos")
+
+        # 🔁 SINCRONIZACIÓN CRÍTICA: Asegurar que el usuario de sesión esté en db.current_user
+        if 'user' in st.session_state and st.session_state.user:
+            db.set_current_user(st.session_state.user)
+            user = st.session_state.user
+            print(f"🔍 Usuario sincronizado: {user.get('email')} - Rol: {user.get('rol')} - Vendedor: {user.get('vendedor_asignado')}")
+        else:
+            st.warning("⚠️ No hay usuario en sesión. Los filtros de seguridad podrían estar bloqueando la carga.")
             return pd.DataFrame()
-        
+
+        # Obtener clientes
+        clientes = db.obtener_clientes()
+
+        if clientes.empty:
+            # Mostrar diagnóstico detallado
+            st.warning(
+                f"⚠️ **No se encontraron clientes.**\n\n"
+                f"**Usuario:** {user.get('email')}\n"
+                f"**Rol:** {user.get('rol')}\n"
+                f"**Vendedor asignado:** {user.get('vendedor_asignado')}\n\n"
+                "**Posibles causas:**\n"
+                "• Si el rol es 'comercial' o 'consulta', debe tener un vendedor asignado en su perfil.\n"
+                "• El nombre del vendedor asignado debe coincidir exactamente con los registros en la tabla `clientes` (columna `vendedor_asignado`).\n"
+                "• La tabla `clientes` puede estar vacía (verifica con un administrador).\n"
+                "• Puede haber un problema de sincronización con la base de datos."
+            )
+            return pd.DataFrame()
+
         # CORRECCIÓN CRÍTICA: Unificar nombres de columnas
-        # La BD usa 'razon_social' pero el código espera 'nombre_cliente'
         if 'razon_social' in clientes.columns and 'nombre_cliente' not in clientes.columns:
             clientes['nombre_cliente'] = clientes['razon_social']
-        
+
         # Asegurar que NIT sea string
         clientes['nit_cliente'] = clientes['nit_cliente'].astype(str).str.strip()
-        
+
         print(f"✅ Clientes cargados: {len(clientes)} registros")
-        print(f"📊 Columnas disponibles: {clientes.columns.tolist()}")
         return clientes
-        
+
     except Exception as e:
         st.error(f"❌ Error cargando clientes: {e}")
         return pd.DataFrame()
