@@ -88,55 +88,109 @@ def _grafica_top_clientes_mora(df):
 
 
 def _grafica_cartera_vendedor_condiciones(df):
-    """Gráfica 3: Cartera por Vendedor y Condiciones de Pago (Sincronizada)"""
+    """
+    Gráfica 3: Cartera por Vendedor y Condiciones de Pago
+    (CORREGIDA: ahora muestra datos reales con anotaciones de total y porcentaje)
+    """
     if df.empty:
         return None
 
+    # Verificar columnas necesarias
+    required_cols = ['nombre_vendedor', 'condicion_pago', 'total_cop']
+    if not all(col in df.columns for col in required_cols):
+        print("ERROR: Faltan columnas para gráfica de vendedores")
+        return None
+
+    # Unificar CO1 y CON como "CONTADO"
     df_mod = df.copy()
-    # Unificación de criterios de Contado
     df_mod['condicion_display'] = df_mod['condicion_pago'].apply(
         lambda x: 'CONTADO' if str(x).upper() in ['CO1', 'CON'] else str(x)
     )
 
-    # Lógica de Seguridad: Identificar el Top 5 global para no saturar la gráfica
-    top_conds = df_mod.groupby('condicion_display')['total_cop'].sum().nlargest(5).index.tolist()
+    # Agrupar por vendedor y condición
+    agrupacion = df_mod.groupby(['nombre_vendedor', 'condicion_display'])['total_cop'].sum().reset_index()
     
-    # El truco: Todo lo que no es Top, se suma a "OTRAS COND." para no perder ni un peso
-    df_mod['cond_final'] = df_mod['condicion_display'].apply(
-        lambda x: x if x in top_conds else 'OTRAS COND.'
-    )
+    if agrupacion.empty:
+        return None
 
-    agrupacion = df_mod.groupby(['nombre_vendedor', 'cond_final'])['total_cop'].sum().reset_index()
-    pivot_data = agrupacion.pivot(index='nombre_vendedor', columns='cond_final', values='total_cop').fillna(0)
+    # Pivotar: vendedores como filas, condiciones como columnas
+    pivot_data = agrupacion.pivot(index='nombre_vendedor', columns='condicion_display', values='total_cop').fillna(0)
 
     if pivot_data.empty:
         return None
 
-    # Ordenar vendedores por el total real (de mayor a menor)
+    # Ordenar vendedores por total de cartera (mayor a menor)
     total_por_vendedor = pivot_data.sum(axis=1)
-    pivot_data = pivot_data.loc[total_por_vendedor.sort_values(ascending=False).index].head(10)
+    pivot_data = pivot_data.loc[total_por_vendedor.sort_values(ascending=False).index]
 
-    vendedores = [v[:15] + '...' if len(v) > 15 else v for v in pivot_data.index]
-    colors = ['#00B3B0', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#64748b']
+    # Seleccionar las 6 condiciones con mayor volumen (igual que en el dashboard)
+    condiciones_totales = pivot_data.sum().sort_values(ascending=False)
+    condiciones_principales = condiciones_totales.head(6).index
+    pivot_data = pivot_data[condiciones_principales]
+
+    # Preparar nombres de vendedores para el eje X (acortar si es necesario)
+    vendedores_originales = pivot_data.index.tolist()
+    vendedores_cortos = [v[:15] + '...' if len(v) > 15 else v for v in vendedores_originales]
+
+    condiciones = pivot_data.columns.tolist()
+    colores = ['#00B3B0', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#10b981']
 
     fig = go.Figure()
-    for i, condicion in enumerate(pivot_data.columns):
+
+    # Añadir una barra por cada condición (apiladas)
+    for i, cond in enumerate(condiciones):
+        valores = pivot_data[cond].values / 1_000_000  # convertir a millones
         fig.add_trace(go.Bar(
-            name=condicion,
-            x=vendedores,
-            y=pivot_data[condicion] / 1e6, # En millones para legibilidad
-            marker_color=colors[i % len(colors)]
+            name=cond,
+            x=vendedores_cortos,
+            y=valores,
+            marker_color=colores[i % len(colores)],
+            hovertemplate='<b>%{x}</b><br>Condición: %{meta[0]}<br>Valor: $%{y:.1f}M<extra></extra>',
+            meta=[cond] * len(vendedores_cortos)
         ))
+
+    # Calcular total general (para porcentajes) usando el pivot original (con todas las condiciones)
+    total_general = total_por_vendedor.sum()
+
+    # Añadir anotaciones con total por vendedor y porcentaje (sobre el total general)
+    # Usamos total_por_vendedor (que ya tenía todos los vendedores con todas las condiciones)
+    for i, vendedor in enumerate(vendedores_originales):
+        total_vendedor = total_por_vendedor[vendedor]
+        if total_vendedor == 0:
+            continue
+        porcentaje = (total_vendedor / total_general) * 100
+        # Posición Y: encima de la barra apilada más alta (usamos el total_vendedor en millones)
+        y_pos = total_vendedor / 1_000_000 + (max(total_por_vendedor) / 1_000_000 * 0.02)
+        fig.add_annotation(
+            x=vendedores_cortos[i],
+            y=y_pos,
+            text=f'${total_vendedor/1e6:.1f}M<br>({porcentaje:.1f}%)',
+            showarrow=False,
+            font=dict(color='#e2e8f0', size=9, weight='bold'),
+            bgcolor='#1e293b',
+            bordercolor='#00B3B0',
+            borderwidth=1,
+            borderpad=2
+        )
 
     fig.update_layout(
         barmode='stack',
         height=600,
         title="Cartera por Vendedor - Condiciones de Pago",
         xaxis_title="Vendedor",
-        yaxis_title="Millones COP",
+        yaxis_title="Valor COP (Millones)",
         template="plotly_dark",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="center",
+            x=0.5,
+            bgcolor='rgba(30, 41, 59, 0.8)'
+        )
     )
+    fig.update_yaxes(tickprefix="$", ticksuffix="M")
+    fig.update_xaxes(tickangle=45)
     return fig
 
 
@@ -499,70 +553,115 @@ def _grafica_analisis_geografico(df):
 
 
 def _grafica_proyeccion_credito(df):
-    """Gráfica 9: Proyección por Crédito (Corregida a Mes Calendario)"""
+    """
+    Gráfica 9: Proyección por Tipo de Crédito (4 rangos)
+    (CORREGIDA: ahora usa rangos reales y muestra datos correctamente)
+    """
     if df.empty:
         return None
 
+    # Verificar columnas necesarias
+    required_cols = ['condicion_pago', 'fecha_vencimiento', 'total_cop']
+    if not all(col in df.columns for col in required_cols):
+        print("ERROR: Faltan columnas para gráfica de proyección")
+        return None
+
+    # Unificar CO1 y CON como "CONTADO"
     df_mod = df.copy()
     df_mod['condicion_display'] = df_mod['condicion_pago'].apply(
         lambda x: 'CONTADO' if str(x).upper() in ['CO1', 'CON'] else str(x)
     )
 
-    hoy = datetime.now()
-    # Calcular límites de meses calendario
-    ultimo_dia_mes = (hoy.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
-    inicio_mes_prox = (ultimo_dia_mes + timedelta(days=1))
-    ultimo_dia_mes_prox = (inicio_mes_prox.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
-
+    # Calcular días hasta vencimiento (fecha hoy)
+    hoy = datetime.now().date()
     df_mod['fecha_vencimiento'] = pd.to_datetime(df_mod['fecha_vencimiento'], errors='coerce')
-    
-    def categorizar_recaudo(fecha):
-        if pd.isnull(fecha) or fecha.date() < hoy.date():
-            return 'Vencido'
-        if fecha.date() <= ultimo_dia_mes.date():
-            return 'Vence este mes'
-        if fecha.date() <= ultimo_dia_mes_prox.date():
-            return 'Vence próximo mes'
-        return 'Vence en 2 meses+'
+    # Convertir a date para evitar problemas con timezone
+    df_mod['fecha_vencimiento_date'] = df_mod['fecha_vencimiento'].dt.date
+    # Días hasta vencimiento: si la fecha es NaT, asignamos NaN y luego se filtrará
+    df_mod['dias_hasta_vencimiento'] = (pd.to_datetime(df_mod['fecha_vencimiento_date']) - pd.to_datetime(hoy)).dt.days
 
-    df_mod['rango_proy'] = df_mod['fecha_vencimiento'].apply(categorizar_recaudo)
-    
-    # Agrupación y pivote
-    pivot = df_mod.groupby(['condicion_display', 'rango_proy'])['total_cop'].sum().unstack().fillna(0)
-    
-    # Ordenar por volumen de cartera
-    orden_condiciones = pivot.sum(axis=1).sort_values(ascending=False).index
-    pivot = pivot.loc[orden_condiciones]
-    
-    # Garantizar el orden cronológico de las columnas
-    columnas_ordenadas = [c for c in ['Vencido', 'Vence este mes', 'Vence próximo mes', 'Vence en 2 meses+'] if c in pivot.columns]
-    pivot = pivot[columnas_ordenadas]
-
-    fig = go.Figure()
-    colores_map = {
-        'Vencido': '#ef4444', 
-        'Vence este mes': '#f59e0b', 
-        'Vence próximo mes': '#eab308', 
-        'Vence en 2 meses+': '#84cc16'
+    # Definir los 4 rangos (exactamente como en el dashboard)
+    rangos_vencimiento = {
+        'Vencido': (-9999, -1),
+        'Vence este mes': (0, 30),
+        'Vence próximo mes': (31, 60),
+        'Vence en 2 meses': (61, 90)  # máximo 90 días
     }
 
-    for rango in pivot.columns:
-        fig.add_trace(go.Bar(
-            name=rango,
-            x=pivot.index,
-            y=pivot[rango] / 1e6,
-            marker_color=colores_map.get(rango, '#cbd5e1')
-        ))
+    # Obtener condiciones únicas (reales, después de unificar)
+    condiciones_unicas = df_mod['condicion_display'].dropna().unique()
+
+    # Diccionario para almacenar resultados
+    proyeccion = {}
+
+    for condicion in condiciones_unicas:
+        datos_cond = df_mod[df_mod['condicion_display'] == condicion]
+        proy_cond = {}
+        for rango, (min_dias, max_dias) in rangos_vencimiento.items():
+            if max_dias == 9999:  # solo para rangos sin límite superior (aquí no hay, pero por si acaso)
+                datos_rango = datos_cond[datos_cond['dias_hasta_vencimiento'] >= min_dias]
+            else:
+                datos_rango = datos_cond[
+                    (datos_cond['dias_hasta_vencimiento'] >= min_dias) &
+                    (datos_cond['dias_hasta_vencimiento'] <= max_dias)
+                ]
+            # Sumar, manejando posibles NaN
+            proy_cond[rango] = datos_rango['total_cop'].sum() if not datos_rango.empty else 0
+        proyeccion[condicion] = proy_cond
+
+    # Crear DataFrame
+    df_proy = pd.DataFrame(proyeccion).T.fillna(0)
+
+    if df_proy.empty:
+        return None
+
+    # Filtrar condiciones con cartera total > 0
+    totales_cond = df_proy.sum(axis=1)
+    condiciones_con_valor = totales_cond[totales_cond > 0].index
+    if len(condiciones_con_valor) == 0:
+        return None
+    df_proy = df_proy.loc[condiciones_con_valor]
+
+    # Ordenar condiciones por total (mayor a menor)
+    totales_cond = df_proy.sum(axis=1)
+    df_proy = df_proy.loc[totales_cond.sort_values(ascending=False).index]
+
+    # Preparar datos para la gráfica
+    condiciones = df_proy.index.tolist()
+    rangos = list(rangos_vencimiento.keys())
+    colores = ['#ef4444', '#f59e0b', '#eab308', '#84cc16']  # rojo, naranja, amarillo, verde
+
+    fig = go.Figure()
+    for i, rango in enumerate(rangos):
+        if rango in df_proy.columns:
+            valores = df_proy[rango].values / 1_000_000  # a millones
+            fig.add_trace(go.Bar(
+                name=rango,
+                x=condiciones,
+                y=valores,
+                marker_color=colores[i % len(colores)],
+                hovertemplate='<b>%{x}</b><br>Rango: %{meta[0]}<br>Valor: $%{y:.1f}M<extra></extra>',
+                meta=[rango] * len(condiciones)
+            ))
 
     fig.update_layout(
         barmode='stack',
         height=500,
-        title="Proyección de Recaudo por Tipo de Crédito",
+        title="Proyección de Vencimientos - Condiciones Reales",
         xaxis_title="Condición de Pago",
-        yaxis_title="Millones COP",
+        yaxis_title="Valor COP (Millones)",
         template="plotly_dark",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="center",
+            x=0.5,
+            bgcolor='rgba(30, 41, 59, 0.8)'
+        )
     )
+    fig.update_yaxes(tickprefix="$", ticksuffix="M")
+    fig.update_xaxes(tickangle=45)
     return fig
 
 # ------------------------------------------------------------
