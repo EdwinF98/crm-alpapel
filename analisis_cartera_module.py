@@ -1544,7 +1544,6 @@ def mostrar_botones_accion():
     
     col_excel, col_reporte = st.columns(2)
     
-    # --- COLUMNA 1: EXCEL ---
     with col_excel:
         if st.button("📊 Descargar Base en Excel", use_container_width=True, key="btn_excel"):
             if not st.session_state.datos_analisis_filtrados.empty:
@@ -1561,26 +1560,24 @@ def mostrar_botones_accion():
                     use_container_width=True
                 )
     
-    # --- COLUMNA 2: REPORTE HTML CON FILTROS ---
     with col_reporte:
         if st.button("📄 Generar Reporte Ejecutivo HTML", use_container_width=True, type="primary", key="btn_html"):
             if not st.session_state.datos_analisis_filtrados.empty:
-                with st.spinner("Preparando reporte dinámico..."):
+                with st.spinner("Sincronizando cifras y gráficas..."):
                     
-                    # --- ESTE BLOQUE ES EL QUE HACÍA FALTA: ---
-                    # Capturamos los nombres exactos de los filtros que el usuario eligió
+                    # CAPTURAMOS LOS FILTROS REALES DE LOS SELECTBOXES
                     filtros = {
-                        'vendedor': st.session_state.get('vendedor_seleccionado'),
-                        'ciudad': st.session_state.get('ciudad_seleccionada'),
-                        'dias_min': st.session_state.get('dias_vencidos_min'),
-                        'dias_max': st.session_state.get('dias_vencidos_max')
+                        'vendedor': st.session_state.get('filtro_vendedor_analisis'),
+                        'condicion': st.session_state.get('filtro_condicion_analisis'),
+                        'dias': st.session_state.get('filtro_dias_analisis'),
+                        'ciudad': st.session_state.get('filtro_ciudad_analisis')
                     }
                     
                     import reporte_graficas as rg
                     html_report = rg.generar_reporte_html(
                         st.session_state.datos_analisis_filtrados,
                         st.session_state.graficas_analisis_activas,
-                        filtros_aplicados=filtros # Le pasamos los filtros capturados
+                        filtros_aplicados=filtros
                     )
                     
                     if html_report:
@@ -1591,11 +1588,7 @@ def mostrar_botones_accion():
                             mime="text/html",
                             use_container_width=True
                         )
-                        st.success("✅ ¡Reporte generado con éxito!")
-
-    if st.button("🔄 Reiniciar Filtros", use_container_width=True):
-        st.session_state.datos_analisis_filtrados = pd.DataFrame()
-        st.rerun()
+                        st.success("✅ Reporte generado. Ábrelo en tu navegador y presiona Ctrl+P para guardar como PDF.")
 
 def exportar_reporte_completo():
     """Exporta el reporte completo a Excel"""
