@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
+import reporte_graficas as rg
 import io
 
 def analisis_cartera_section():
@@ -1536,25 +1537,65 @@ def crear_grafica_proyeccion_credito(datos):
         st.error(f"❌ Error creando proyección por tipo de crédito: {str(e)}")
 
 def mostrar_botones_accion():
-    """Muestra botones de acción adicionales"""
+    """Muestra los botones de exportación premium para ALPAPEL"""
     
     st.markdown("---")
-    st.subheader("🚀 Acciones Adicionales")
+    st.markdown("### 🚀 Exportación Gerencial")
     
-    col1, col2, col3 = st.columns(3)
+    col_excel, col_reporte = st.columns(2)
     
-    with col1:
-        if st.button("📤 Exportar Reporte", use_container_width=True, help="Exportar análisis completo a Excel"):
-            exportar_reporte_completo()
+    # --- COLUMNA 1: EXCEL ---
+    with col_excel:
+        if st.button("📊 Descargar Base en Excel", use_container_width=True, key="btn_excel"):
+            if not st.session_state.datos_analisis_filtrados.empty:
+                output = io.BytesIO()
+                df_export = st.session_state.datos_analisis_filtrados.copy()
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    df_export.to_excel(writer, sheet_name='Cartera', index=False)
+                
+                st.download_button(
+                    label="✅ Guardar Excel",
+                    data=output.getvalue(),
+                    file_name=f"Cartera_Alpapel_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
     
-    with col2:
-        if st.button("📊 Actualizar Datos", use_container_width=True, type="primary", help="Actualizar todos los datos del análisis"):
-            st.session_state.datos_analisis_filtrados = pd.DataFrame()
-            st.rerun()
-    
-    with col3:
-        if st.button("🔄 Cargar Historial", use_container_width=True, help="Cargar datos históricos de cartera"):
-            cargar_historial_datos()
+    # --- COLUMNA 2: REPORTE HTML CON FILTROS ---
+    with col_reporte:
+        if st.button("📄 Generar Reporte Ejecutivo HTML", use_container_width=True, type="primary", key="btn_html"):
+            if not st.session_state.datos_analisis_filtrados.empty:
+                with st.spinner("Preparando reporte dinámico..."):
+                    
+                    # --- ESTE BLOQUE ES EL QUE HACÍA FALTA: ---
+                    # Capturamos los nombres exactos de los filtros que el usuario eligió
+                    filtros = {
+                        'vendedor': st.session_state.get('vendedor_seleccionado'),
+                        'ciudad': st.session_state.get('ciudad_seleccionada'),
+                        'dias_min': st.session_state.get('dias_vencidos_min'),
+                        'dias_max': st.session_state.get('dias_vencidos_max')
+                    }
+                    
+                    import reporte_graficas as rg
+                    html_report = rg.generar_reporte_html(
+                        st.session_state.datos_analisis_filtrados,
+                        st.session_state.graficas_analisis_activas,
+                        filtros_aplicados=filtros # Le pasamos los filtros capturados
+                    )
+                    
+                    if html_report:
+                        st.download_button(
+                            label="⬇️ Descargar Reporte HTML",
+                            data=html_report,
+                            file_name=f"Reporte_Ejecutivo_Alpapel_{datetime.now().strftime('%Y%m%d')}.html",
+                            mime="text/html",
+                            use_container_width=True
+                        )
+                        st.success("✅ ¡Reporte generado con éxito!")
+
+    if st.button("🔄 Reiniciar Filtros", use_container_width=True):
+        st.session_state.datos_analisis_filtrados = pd.DataFrame()
+        st.rerun()
 
 def exportar_reporte_completo():
     """Exporta el reporte completo a Excel"""

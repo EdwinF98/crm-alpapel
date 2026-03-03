@@ -21,15 +21,14 @@ class DatabaseManager:
         self.current_user = None
 
     def _get_database_path(self):
-        """Define la ruta persistente del archivo SQLite"""
-        home_dir = os.path.expanduser("~")
-        data_dir = os.path.join(home_dir, "cartera_crm_data")
-
-        if not os.path.exists(data_dir):
-            os.makedirs(data_dir)
-
-        db_path = os.path.join(data_dir, "cartera_crm.db")
-        print(f"Base de datos ubicada en: {db_path}")
+        """Define la ruta de la base de datos en la misma carpeta del proyecto"""
+        # Obtiene la dirección de la carpeta donde está este archivo (database.py)
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        
+        # Une la carpeta con el nombre del archivo
+        db_path = os.path.join(base_dir, "cartera_crm.db")
+        
+        print(f"📍 Base de datos ubicada en: {db_path}")
         return db_path
 
     def set_current_user(self, user_data):

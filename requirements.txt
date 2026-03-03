@@ -14,3 +14,4 @@ python-docx
 docxtpl
 fpdf2
 pytz
+fpdf2 kaleido

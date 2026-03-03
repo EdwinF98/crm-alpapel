@@ -6,38 +6,38 @@ import secrets
 from datetime import datetime
 
 def crear_base_datos_completa():
-    """Crea la base de datos cartera_crm.db con todas las tablas y usuario admin"""
+    """Crea la base de datos cartera_crm.db con la estructura exacta y el usuario admin solicitado"""
     
-    # Eliminar base de datos existente si existe
-    if os.path.exists("cartera_crm.db"):
-        os.remove("cartera_crm.db")
-        print("🗑️  Base de datos anterior eliminada")
+    db_name = "cartera_crm.db"
     
+    # Eliminar base de datos existente si existe para limpieza total
+    if os.path.exists(db_name):
+        try:
+            os.remove(db_name)
+            print(f"🗑️ Base de datos '{db_name}' anterior eliminada")
+        except PermissionError:
+            print(f"❌ ERROR: No se pudo eliminar '{db_name}'. Asegúrate de cerrar Streamlit primero.")
+            return
+
     # Conectar a la nueva base de datos
-    conn = sqlite3.connect("cartera_crm.db")
+    conn = sqlite3.connect(db_name)
     cursor = conn.cursor()
     
-    print("🔄 Creando estructura de base de datos...")
-    
-    # ============================================================
-    # 1. TABLA DE VENDEDORES
-    # ============================================================
+    print("🔄 Creando estructura de base de datos sincronizada...")
+
+    # --- 1. TABLA DE VENDEDORES ---
     cursor.execute('''
         CREATE TABLE vendedores (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             nombre_vendedor TEXT UNIQUE
         )
     ''')
-    print("✅ Tabla 'vendedores' creada")
-    
-    # ============================================================
-    # 2. TABLA DE CLIENTES
-    # ============================================================
+
+    # --- 2. TABLA DE CLIENTES ---
     cursor.execute('''
         CREATE TABLE clientes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            nit_cliente TEXT UNIQUE,
-            razon_social TEXT,
+            nit_cliente TEXT PRIMARY KEY,
+            razon_social TEXT NOT NULL,
             telefono TEXT,
             celular TEXT,
             direccion TEXT,
@@ -45,14 +45,12 @@ def crear_base_datos_completa():
             ciudad TEXT,
             vendedor_asignado TEXT,
             estado_cupo TEXT DEFAULT 'activo',
-            fecha_registro DATE DEFAULT CURRENT_DATE
+            fecha_registro DATE DEFAULT CURRENT_DATE,
+            fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     ''')
-    print("✅ Tabla 'clientes' creada")
-    
-    # ============================================================
-    # 3. TABLA DE CARTERA ACTUAL
-    # ============================================================
+
+    # --- 3. TABLA DE CARTERA ACTUAL ---
     cursor.execute('''
         CREATE TABLE cartera_actual (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -67,32 +65,12 @@ def crear_base_datos_completa():
             condicion_pago TEXT,
             dias_vencidos INTEGER,
             dias_gracia INTEGER,
-            fecha_carga DATE DEFAULT CURRENT_DATE
+            fecha_carga DATE DEFAULT CURRENT_DATE,
+            FOREIGN KEY (nit_cliente) REFERENCES clientes (nit_cliente)
         )
     ''')
-    print("✅ Tabla 'cartera_actual' creada")
-    
-    # ============================================================
-    # 4. TABLA DE HISTORIAL CARTERA
-    # ============================================================
-    cursor.execute('''
-        CREATE TABLE historial_cartera (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            nit_cliente TEXT,
-            nro_factura TEXT,
-            total_cop REAL,
-            fecha_emision DATE,
-            fecha_vencimiento DATE,
-            condicion_pago TEXT,
-            dias_vencidos INTEGER,
-            fecha_registro DATE
-        )
-    ''')
-    print("✅ Tabla 'historial_cartera' creada")
-    
-    # ============================================================
-    # 5. TABLA DE GESTIONES
-    # ============================================================
+
+    # --- 4. TABLA DE GESTIONES ---
     cursor.execute('''
         CREATE TABLE gestiones (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -106,14 +84,12 @@ def crear_base_datos_completa():
             promesa_pago_fecha DATE,
             promesa_pago_monto REAL,
             proxima_gestion DATE,
-            fecha_registro DATETIME DEFAULT CURRENT_TIMESTAMP
+            fecha_registro DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (nit_cliente) REFERENCES clientes (nit_cliente)
         )
     ''')
-    print("✅ Tabla 'gestiones' creada")
-    
-    # ============================================================
-    # 6. TABLA DE HISTORIAL CARTERA DIARIO
-    # ============================================================
+
+    # --- 5. TABLA DE HISTORIAL CARTERA DIARIO ---
     cursor.execute('''
         CREATE TABLE historial_cartera_diario (
             fecha_carga DATE,
@@ -137,11 +113,8 @@ def crear_base_datos_completa():
             PRIMARY KEY (fecha_carga, nit_cliente, nro_factura)
         )
     ''')
-    print("✅ Tabla 'historial_cartera_diario' creada")
-    
-    # ============================================================
-    # 7. TABLA DE USUARIOS (SISTEMA DE AUTENTICACIÓN)
-    # ============================================================
+
+    # --- 6. TABLA DE USUARIOS (Sincronizada con auth.py) ---
     cursor.execute('''
         CREATE TABLE usuarios (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -151,98 +124,54 @@ def crear_base_datos_completa():
             rol TEXT NOT NULL DEFAULT 'comercial',
             vendedor_asignado TEXT,
             activo INTEGER DEFAULT 1,
-            email_verificado INTEGER DEFAULT 0,
+            intentos_fallidos INTEGER DEFAULT 0,
+            bloqueado_hasta DATETIME,
             fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP,
             ultimo_login DATETIME,
-            intentos_login INTEGER DEFAULT 0,
-            bloqueado_hasta DATETIME,
-            reset_token TEXT,
-            reset_token_expira DATETIME
+            email_verificado INTEGER DEFAULT 0
         )
     ''')
-    print("✅ Tabla 'usuarios' creada")
-    
-    # ============================================================
-    # 8. TABLA DE AUDITORÍA LOGIN
-    # ============================================================
+
+    # --- 7. TABLA DE AUDITORÍA ---
     cursor.execute('''
         CREATE TABLE auditoria_login (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             usuario_id INTEGER,
             email TEXT,
-            fecha_login DATETIME DEFAULT CURRENT_TIMESTAMP,
             ip_address TEXT,
             user_agent TEXT,
-            exito INTEGER DEFAULT 0,
-            FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
+            exito INTEGER,
+            fecha_login DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     ''')
-    print("✅ Tabla 'auditoria_login' creada")
-    
-    # ============================================================
-    # CREAR USUARIO ADMINISTRADOR INICIAL
-    # ============================================================
+
+    # --- FUNCIÓN DE ENCRIPTACIÓN ---
     def hash_password(password):
-        """Encripta la contraseña usando SHA-256 con salt"""
         salt = secrets.token_hex(16)
         return f"{salt}${hashlib.sha256((salt + password).encode()).hexdigest()}"
-    
+
+    # --- USUARIO ADMINISTRADOR SOLICITADO ---
     admin_email = "cartera@alpapel.com"
-    admin_password = "12345678"
-    admin_password_hash = hash_password(admin_password)
-    
+    admin_password = "12345678"  # <--- Contraseña ajustada para ti
+    admin_hash = hash_password(admin_password)
+
     cursor.execute('''
-        INSERT INTO usuarios (email, password_hash, nombre_completo, rol, email_verificado, activo)
-        VALUES (?, ?, ?, ?, 1, 1)
-    ''', (admin_email, admin_password_hash, 'Administrador Principal', 'admin'))
-    
-    print("✅ Usuario administrador creado:")
-    print(f"   📧 Email: {admin_email}")
-    print(f"   🔐 Password: {admin_password}")
-    print(f"   👤 Nombre: Administrador Principal")
-    print(f"   🎭 Rol: admin")
-    
-    # ============================================================
-    # CREAR ÍNDICES PARA MEJOR PERFORMANCE
-    # ============================================================
-    
-    # Índices para cartera
-    cursor.execute('CREATE INDEX idx_cartera_nit ON cartera_actual(nit_cliente)')
-    cursor.execute('CREATE INDEX idx_cartera_vendedor ON cartera_actual(nombre_vendedor)')
-    cursor.execute('CREATE INDEX idx_cartera_dias_vencidos ON cartera_actual(dias_vencidos)')
-    
-    # Índices para clientes
-    cursor.execute('CREATE INDEX idx_clientes_nit ON clientes(nit_cliente)')
-    cursor.execute('CREATE INDEX idx_clientes_vendedor ON clientes(vendedor_asignado)')
-    
-    # Índices para gestiones
-    cursor.execute('CREATE INDEX idx_gestiones_nit ON gestiones(nit_cliente)')
-    cursor.execute('CREATE INDEX idx_gestiones_fecha ON gestiones(fecha_contacto)')
-    cursor.execute('CREATE INDEX idx_gestiones_usuario ON gestiones(usuario)')
-    
-    # Índices para usuarios
+        INSERT INTO usuarios (email, password_hash, nombre_completo, rol, activo)
+        VALUES (?, ?, ?, ?, 1)
+    ''', (admin_email, admin_hash, 'Administrador ALPAPEL', 'admin'))
+
+    # --- ÍNDICES ---
+    cursor.execute('CREATE INDEX idx_cartera_vencidos ON cartera_actual(dias_vencidos)')
     cursor.execute('CREATE INDEX idx_usuarios_email ON usuarios(email)')
-    cursor.execute('CREATE INDEX idx_usuarios_rol ON usuarios(rol)')
-    
-    print("✅ Índices de performance creados")
-    
-    # ============================================================
-    # FINALIZAR
-    # ============================================================
-    
+
     conn.commit()
     conn.close()
     
-    print("")
-    print("🎉 ¡BASE DE DATOS CREADA EXITOSAMENTE!")
-    print("=======================================")
-    print("📍 Archivo: cartera_crm.db")
-    print("📊 Tablas creadas: 8")
-    print("👤 Usuario admin: cartera@alpapel.com / 12345678")
-    print("")
-    print("✅ Tu aplicación Streamlit funcionará inmediatamente")
-    print("✅ Todo se guardará sincrónicamente en esta base de datos")
-    print("✅ Sistema multiusuario listo para usar")
+    print(f"\n🎉 ¡BASE DE DATOS CREADA EXITOSAMENTE!")
+    print(f"=======================================")
+    print(f"📧 Usuario: {admin_email}")
+    print(f"🔐 Clave:   {admin_password}")
+    print(f"📍 Ubicación: {os.path.abspath(db_name)}")
 
 if __name__ == "__main__":
     crear_base_datos_completa()
