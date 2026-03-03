@@ -1,3 +1,4 @@
+# reporte_graficas.py
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
@@ -6,29 +7,625 @@ from datetime import datetime, timedelta
 import os
 import base64
 
+# ------------------------------------------------------------
+# FUNCIONES DE CREACIÓN DE GRÁFICAS (IDÉNTICAS AL DASHBOARD)
+# ------------------------------------------------------------
+
+def _grafica_distribucion_estado(df):
+    """Gráfica 1: Distribución por Estado de Cartera"""
+    if df.empty:
+        return None
+
+    categorias_estado = ['Corriente', '1-30 días', '31-60 días', '61-90 días', '+90 días']
+    valores_estado = [
+        df[df['dias_vencidos'] == 0]['total_cop'].sum(),
+        df[(df['dias_vencidos'] >= 1) & (df['dias_vencidos'] <= 30)]['total_cop'].sum(),
+        df[(df['dias_vencidos'] >= 31) & (df['dias_vencidos'] <= 60)]['total_cop'].sum(),
+        df[(df['dias_vencidos'] >= 61) & (df['dias_vencidos'] <= 90)]['total_cop'].sum(),
+        df[df['dias_vencidos'] > 90]['total_cop'].sum()
+    ]
+
+    if not any(v > 0 for v in valores_estado):
+        return None
+
+    colors = ['#10b981', '#f59e0b', '#f97316', '#dc2626', '#991b1b']
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=categorias_estado,
+        y=valores_estado,
+        marker_color=colors,
+        text=[f'${v/1e6:.1f}M' if v >= 1e6 else f'${v/1e3:.0f}K' for v in valores_estado],
+        textposition='auto',
+    ))
+    fig.update_layout(
+        title="Distribución por Estado de Cartera",
+        xaxis_title="Estado de Cartera",
+        yaxis_title="Valor COP",
+        template="plotly_dark",
+        height=500,
+        showlegend=False
+    )
+    fig.update_yaxes(tickprefix='$', tickformat='.0s')
+    return fig
+
+
+def _grafica_top_clientes_mora(df):
+    """Gráfica 2: Top 10 Clientes con Mayor Mora"""
+    df_mora = df[df['dias_vencidos'] > 0]
+    if df_mora.empty:
+        return None
+
+    top_clientes = df_mora.groupby('razon_social_cliente').agg({
+        'total_cop': 'sum',
+        'dias_vencidos': 'max'
+    }).nlargest(10, 'total_cop').iloc[::-1]  # invertir para gráfica horizontal
+
+    if top_clientes.empty:
+        return None
+
+    clientes_nombres = [nombre[:20] + '...' if len(nombre) > 20 else nombre 
+                        for nombre in top_clientes.index]
+    valores = top_clientes['total_cop'].values
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        y=clientes_nombres,
+        x=valores,
+        orientation='h',
+        marker_color='#ef4444',
+        text=[f'${v/1e6:.1f}M' for v in valores],
+        textposition='auto',
+    ))
+    fig.update_layout(
+        title="Top 10 Clientes con Mayor Mora",
+        xaxis_title="Valor en Mora (COP)",
+        yaxis_title="Cliente",
+        template="plotly_dark",
+        height=500
+    )
+    fig.update_xaxes(tickprefix='$', tickformat='.0s')
+    return fig
+
+
+def _grafica_cartera_vendedor_condiciones(df):
+    """Gráfica 3: Cartera por Vendedor y Condiciones de Pago"""
+    if df.empty:
+        return None
+
+    df_mod = df.copy()
+    df_mod['condicion_display'] = df_mod['condicion_pago'].apply(
+        lambda x: 'CONTADO' if str(x).upper() in ['CO1', 'CON'] else str(x)
+    )
+
+    agrupacion = df_mod.groupby(['nombre_vendedor', 'condicion_display'])['total_cop'].sum().reset_index()
+    pivot_data = agrupacion.pivot(index='nombre_vendedor', columns='condicion_display', values='total_cop').fillna(0)
+
+    if pivot_data.empty:
+        return None
+
+    total_por_vendedor = pivot_data.sum(axis=1)
+    pivot_data = pivot_data.loc[total_por_vendedor.sort_values(ascending=False).index]
+
+    condiciones_totales = pivot_data.sum().sort_values(ascending=False)
+    condiciones_principales = condiciones_totales.head(6).index
+    pivot_data = pivot_data[condiciones_principales]
+
+    vendedores = []
+    for vendedor in pivot_data.index:
+        vendedores.append(vendedor[:15] + '...' if len(vendedor) > 15 else vendedor)
+
+    condiciones = pivot_data.columns
+    colors = ['#00B3B0', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#10b981']
+
+    fig = go.Figure()
+    for i, condicion in enumerate(condiciones):
+        valores = pivot_data[condicion].values / 1000000  # en millones
+        fig.add_trace(go.Bar(
+            name=condicion,
+            x=vendedores,
+            y=valores,
+            marker_color=colors[i % len(colors)],
+            hovertemplate='<b>%{x}</b><br>Condición: %{meta[0]}<br>Valor: $%{y:.1f}M<extra></extra>',
+            meta=[condicion] * len(vendedores)
+        ))
+
+    total_general = total_por_vendedor.sum()
+    for i, (vendedor, total_vendedor) in enumerate(zip(vendedores, total_por_vendedor)):
+        porcentaje_vendedor = (total_vendedor / total_general) * 100
+        fig.add_annotation(
+            x=vendedor,
+            y=total_vendedor / 1000000 + (max(total_por_vendedor) / 1000000 * 0.02),
+            text=f'${total_vendedor/1000000:.1f}M<br>({porcentaje_vendedor:.1f}%)',
+            showarrow=False,
+            font=dict(color='#e2e8f0', size=9, weight='bold'),
+            bgcolor='#1e293b',
+            bordercolor='#00B3B0',
+            borderwidth=1,
+            borderpad=2
+        )
+
+    fig.update_layout(
+        barmode='stack',
+        height=600,
+        title="Cartera por Vendedor - Condiciones de Pago",
+        xaxis_title="Vendedor",
+        yaxis_title="Valor COP (Millones)",
+        template="plotly_dark",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
+    )
+    fig.update_yaxes(tickprefix="$", ticksuffix="M")
+    fig.update_xaxes(tickangle=45)
+    return fig
+
+
+def _grafica_condiciones_pago(df):
+    """Gráfica 4: Distribución por Condición de Pago"""
+    if df.empty:
+        return None
+
+    df_mod = df.copy()
+    df_mod['condicion_display'] = df_mod['condicion_pago'].apply(
+        lambda x: 'CONTADO' if str(x).upper() in ['CO1', 'CON'] else str(x)
+    )
+
+    distribucion = df_mod.groupby('condicion_display')['total_cop'].sum().sort_values(ascending=False)
+
+    if distribucion.empty:
+        return None
+
+    distribucion = distribucion.iloc[::-1]  # invertir para gráfica horizontal
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        y=distribucion.index,
+        x=distribucion.values,
+        orientation='h',
+        marker_color='#00B3B0',
+        text=[f'${v/1e6:.1f}M' for v in distribucion.values],
+        textposition='auto',
+    ))
+    fig.update_layout(
+        title="Distribución por Condición de Pago",
+        xaxis_title="Valor COP",
+        yaxis_title="Condición de Pago",
+        template="plotly_dark",
+        height=500
+    )
+    fig.update_xaxes(tickprefix='$', tickformat='.0s')
+    return fig
+
+
+def _grafica_evolucion_proyeccion(df):
+    """Gráfica 5: Evolución Histórica + Proyección (12M + 4M)"""
+    if df.empty:
+        return None
+
+    # Datos históricos (últimos 12 meses)
+    df_hist = df.copy()
+    df_hist['fecha_vencimiento'] = pd.to_datetime(df_hist['fecha_vencimiento'], errors='coerce')
+    if df_hist.empty:
+        return None
+
+    fecha_max = df_hist['fecha_vencimiento'].max()
+    fecha_limite = fecha_max - timedelta(days=365)
+    df_hist = df_hist[df_hist['fecha_vencimiento'] >= fecha_limite]
+
+    # Agrupar por mes para histórico
+    historico = []
+    if not df_hist.empty:
+        df_hist['mes'] = df_hist['fecha_vencimiento'].dt.strftime('%Y-%m')
+        agrupado = df_hist.groupby('mes')['total_cop'].sum().reset_index()
+        agrupado = agrupado.sort_values('mes')
+        for _, row in agrupado.iterrows():
+            historico.append({'mes': row['mes'], 'cartera': row['total_cop']})
+
+    # Proyección futura (próximos 4 meses)
+    hoy = datetime.now().date()
+    df_fut = df.copy()
+    df_fut['fecha_vencimiento'] = pd.to_datetime(df_fut['fecha_vencimiento'], errors='coerce')
+    df_fut = df_fut[df_fut['fecha_vencimiento'] >= pd.to_datetime(hoy)]
+
+    proyeccion = []
+    for i in range(4):
+        mes_futuro = (hoy.replace(day=1) + timedelta(days=32*i)).replace(day=1)
+        mes_nombre = mes_futuro.strftime('%Y-%m')
+        mes_display = mes_futuro.strftime('%b %Y')
+        inicio_mes = mes_futuro
+        fin_mes = (mes_futuro + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+
+        df_mes = df_fut[
+            (df_fut['fecha_vencimiento'] >= pd.to_datetime(inicio_mes)) &
+            (df_fut['fecha_vencimiento'] <= pd.to_datetime(fin_mes))
+        ]
+        total_mes = df_mes['total_cop'].sum()
+        if total_mes > 0:
+            proyeccion.append({'mes': mes_nombre, 'display': mes_display, 'cartera': total_mes})
+
+    # Combinar datos
+    meses = []
+    valores = []
+    es_proy = []
+    display_meses = []
+
+    for item in historico:
+        meses.append(item['mes'])
+        display_meses.append(datetime.strptime(item['mes'], '%Y-%m').strftime('%b %Y'))
+        valores.append(item['cartera'])
+        es_proy.append(False)
+
+    for item in proyeccion:
+        meses.append(item['mes'])
+        display_meses.append(item['display'])
+        valores.append(item['cartera'])
+        es_proy.append(True)
+
+    if not meses:
+        return None
+
+    # Separar histórico y proyección
+    meses_hist = [display_meses[i] for i in range(len(display_meses)) if not es_proy[i]]
+    valores_hist = [valores[i] for i in range(len(valores)) if not es_proy[i]]
+    meses_proy = [display_meses[i] for i in range(len(display_meses)) if es_proy[i]]
+    valores_proy = [valores[i] for i in range(len(valores)) if es_proy[i]]
+
+    fig = make_subplots(rows=2, cols=1, subplot_titles=('Cartera (Millones COP)', 'Clientes (no disponible)'),
+                        vertical_spacing=0.1)
+
+    # Gráfica de cartera
+    if meses_hist:
+        fig.add_trace(go.Scatter(
+            x=meses_hist,
+            y=[v/1e6 for v in valores_hist],
+            mode='lines+markers+text',
+            name='Cartera Histórica',
+            line=dict(color='#00B3B0', width=4),
+            marker=dict(size=8, color='#00B3B0'),
+            text=[f'${v/1e6:.1f}M' for v in valores_hist],
+            textposition='top center',
+            textfont=dict(color='#00B3B0', size=10)
+        ), row=1, col=1)
+
+    if meses_proy:
+        fig.add_trace(go.Scatter(
+            x=meses_proy,
+            y=[v/1e6 for v in valores_proy],
+            mode='lines+markers+text',
+            name='Proyección',
+            line=dict(color='#F57C00', width=4, dash='dash'),
+            marker=dict(size=8, color='#F57C00'),
+            text=[f'${v/1e6:.1f}M' for v in valores_proy],
+            textposition='top center',
+            textfont=dict(color='#F57C00', size=10)
+        ), row=1, col=1)
+
+    fig.update_layout(
+        height=600,
+        showlegend=True,
+        template="plotly_dark",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
+    )
+    fig.update_xaxes(title_text="Mes", row=1, col=1, tickangle=-45)
+    fig.update_yaxes(title_text="Millones COP", tickprefix="$", row=1, col=1)
+
+    # Segunda gráfica (clientes) - no implementada en el dashboard, se deja vacía
+    fig.update_xaxes(title_text="Mes", row=2, col=1, tickangle=-45)
+    fig.update_yaxes(title_text="Clientes", row=2, col=1)
+
+    return fig
+
+
+def _grafica_concentracion_cartera(df):
+    """Gráfica 6: Concentración 20/80"""
+    if df.empty:
+        return None
+
+    cartera_cliente = df.groupby(['nit_cliente', 'razon_social_cliente'])['total_cop'].sum().sort_values(ascending=False)
+    total = cartera_cliente.sum()
+    if total == 0:
+        return None
+
+    acum = cartera_cliente.cumsum()
+    clientes_20 = len(acum[acum <= total * 0.2])
+    cartera_80 = acum.iloc[clientes_20] if clientes_20 < len(acum) else acum.iloc[-1]
+
+    # Top 15 clientes
+    top_clientes = cartera_cliente.head(15).iloc[::-1]
+    clientes_nombres = [nombre[:15] + '...' if len(nombre) > 15 else nombre 
+                        for nombre in top_clientes.index.get_level_values(1)]
+
+    fig = make_subplots(rows=1, cols=2,
+                        subplot_titles=('Top 15 Clientes', 'Distribución 20/80'),
+                        specs=[[{"type": "bar"}, {"type": "bar"}]])
+
+    fig.add_trace(go.Bar(
+        y=clientes_nombres,
+        x=top_clientes.values,
+        orientation='h',
+        marker_color='#3b82f6'
+    ), row=1, col=1)
+
+    fig.add_trace(go.Bar(
+        x=[f'Top {clientes_20} Clientes', f'Resto {len(cartera_cliente)-clientes_20} Clientes'],
+        y=[cartera_80, total - cartera_80],
+        marker_color=['#00B3B0', '#475569']
+    ), row=1, col=2)
+
+    fig.update_layout(
+        title="Concentración de Cartera - Análisis 20/80",
+        template="plotly_dark",
+        height=500,
+        showlegend=False
+    )
+    fig.update_xaxes(tickprefix='$', tickformat='.0s', row=1, col=1)
+    fig.update_xaxes(tickprefix='$', tickformat='.0s', row=1, col=2)
+    return fig
+
+
+def _grafica_envejecimiento_detallado(df):
+    """Gráfica 7: Envejecimiento Detallado"""
+    if df.empty:
+        return None
+
+    rangos = {
+        'Corriente (0 días)': (0, 0),
+        '1-15 días': (1, 15),
+        '16-30 días': (16, 30),
+        '31-60 días': (31, 60),
+        '61-90 días': (61, 90),
+        '91-180 días': (91, 180),
+        '181-365 días': (181, 365),
+        '+365 días': (366, 9999)
+    }
+
+    valores_rangos = {}
+    clientes_rangos = {}
+    for nombre, (min_dias, max_dias) in rangos.items():
+        if max_dias == 9999:
+            datos_rango = df[df['dias_vencidos'] >= min_dias]
+        else:
+            datos_rango = df[(df['dias_vencidos'] >= min_dias) & (df['dias_vencidos'] <= max_dias)]
+        valores_rangos[nombre] = datos_rango['total_cop'].sum()
+        clientes_rangos[nombre] = datos_rango['nit_cliente'].nunique()
+
+    # Filtrar rangos con valor
+    valores_rangos = {k: v for k, v in valores_rangos.items() if v > 0}
+    if not valores_rangos:
+        return None
+
+    rangos_nombres = list(valores_rangos.keys())
+    rangos_valores = [v / 1e6 for v in valores_rangos.values()]
+    rangos_clientes = [clientes_rangos[k] for k in rangos_nombres]
+
+    colores = ['#10b981', '#84cc16', '#f59e0b', '#f97316', '#ef4444', '#dc2626', '#991b1b', '#7f1d1d']
+    colores = colores[:len(rangos_nombres)]
+
+    fig = make_subplots(rows=1, cols=2,
+                        subplot_titles=('Cartera por Rango', 'Distribución Porcentual'),
+                        specs=[[{"type": "bar"}, {"type": "pie"}]])
+
+    fig.add_trace(go.Bar(
+        x=rangos_nombres,
+        y=rangos_valores,
+        marker_color=colores,
+        text=[f'${v:.1f}M<br>{c} clientes' for v, c in zip(rangos_valores, rangos_clientes)],
+        textposition='auto',
+        hovertemplate='<b>%{x}</b><br>Cartera: $%{y:.1f}M<br>Clientes: %{customdata}<extra></extra>',
+        customdata=rangos_clientes
+    ), row=1, col=1)
+
+    total_cartera = sum(valores_rangos.values())
+    porcentajes = [v / total_cartera * 100 for v in valores_rangos.values()]
+
+    fig.add_trace(go.Pie(
+        labels=rangos_nombres,
+        values=porcentajes,
+        marker_colors=colores,
+        textinfo='percent+label',
+        hovertemplate='<b>%{label}</b><br>Porcentaje: %{percent}<br>Valor: $%{value:.1f}M<extra></extra>'
+    ), row=1, col=2)
+
+    fig.update_layout(
+        height=500,
+        showlegend=False,
+        template="plotly_dark",
+        title="Análisis Detallado de Envejecimiento - Cartera Actual"
+    )
+    fig.update_xaxes(tickangle=45, row=1, col=1)
+    fig.update_yaxes(title_text="Millones COP", tickprefix="$", row=1, col=1)
+    return fig
+
+
+def _grafica_analisis_geografico(df):
+    """Gráfica 8: Análisis Geográfico"""
+    if df.empty or 'ciudad' not in df.columns:
+        return None
+
+    # Agrupar por ciudad (la columna ya debe venir del merge en el dashboard)
+    cartera_ciudad = df.groupby('ciudad').agg({
+        'total_cop': 'sum',
+        'nit_cliente': 'nunique',
+        'dias_vencidos': 'mean'
+    }).round(2)
+
+    cartera_ciudad = cartera_ciudad[cartera_ciudad['total_cop'] > 0]
+    cartera_ciudad = cartera_ciudad.sort_values('total_cop', ascending=False).head(15)
+
+    if cartera_ciudad.empty:
+        return None
+
+    ciudades = [c[:20] + '...' if len(c) > 20 else c for c in cartera_ciudad.index]
+    valores = cartera_ciudad['total_cop'].values / 1e6
+    n_clientes = cartera_ciudad['nit_cliente'].values
+
+    fig = make_subplots(rows=1, cols=2,
+                        subplot_titles=('Top 15 Ciudades - Cartera', 'Promedio de Morosidad'),
+                        specs=[[{"type": "bar"}, {"type": "bar"}]])
+
+    fig.add_trace(go.Bar(
+        y=ciudades,
+        x=valores,
+        orientation='h',
+        marker_color='#3b82f6',
+        text=[f'${v:.1f}M<br>{c} clientes' for v, c in zip(valores, n_clientes)],
+        textposition='auto',
+        hovertemplate='<b>%{y}</b><br>Cartera: $%{x:.1f}M<br>Clientes: %{customdata}<extra></extra>',
+        customdata=n_clientes
+    ), row=1, col=1)
+
+    # Ciudades con mora (promedio de días vencidos)
+    ciudades_mora = cartera_ciudad[cartera_ciudad['dias_vencidos'] > 0]
+    if not ciudades_mora.empty:
+        ciudades_mora = ciudades_mora.sort_values('dias_vencidos', ascending=False)
+        ciudades_mora_nombres = [c[:15] + '...' if len(c) > 15 else c for c in ciudades_mora.index]
+        promedios_mora = ciudades_mora['dias_vencidos'].values
+
+        colors_mora = [f'rgb({int(239 + (220-239)*i/len(promedios_mora))}, {int(68 + (38-68)*i/len(promedios_mora))}, {int(68 + (38-68)*i/len(promedios_mora))})'
+                       for i in range(len(promedios_mora))]
+
+        fig.add_trace(go.Bar(
+            x=ciudades_mora_nombres,
+            y=promedios_mora,
+            marker_color=colors_mora,
+            text=[f'{v:.0f} días' for v in promedios_mora],
+            textposition='auto',
+            hovertemplate='<b>%{x}</b><br>Días vencidos promedio: %{y:.0f} días<extra></extra>'
+        ), row=1, col=2)
+
+        fig.update_xaxes(tickangle=45, row=1, col=2)
+    else:
+        fig.add_annotation(
+            text="No hay morosidad en las ciudades analizadas",
+            xref="x2", yref="y2",
+            x=0.5, y=0.5,
+            xanchor="center", yanchor="middle",
+            showarrow=False,
+            font=dict(size=14, color="#94a3b8"),
+            row=1, col=2
+        )
+
+    fig.update_layout(
+        height=500,
+        showlegend=False,
+        template="plotly_dark",
+        title="Análisis Geográfico de Cartera"
+    )
+    fig.update_xaxes(title_text="Millones COP", tickprefix="$", row=1, col=1)
+    fig.update_yaxes(title_text="Ciudad", row=1, col=1)
+    if not ciudades_mora.empty:
+        fig.update_yaxes(title_text="Días Vencidos Promedio", row=1, col=2)
+    return fig
+
+
+def _grafica_proyeccion_credito(df):
+    """Gráfica 9: Proyección por Tipo de Crédito (4 rangos)"""
+    if df.empty:
+        return None
+
+    df_mod = df.copy()
+    df_mod['condicion_display'] = df_mod['condicion_pago'].apply(
+        lambda x: 'CONTADO' if str(x).upper() in ['CO1', 'CON'] else str(x)
+    )
+
+    hoy = datetime.now().date()
+    df_mod['fecha_vencimiento'] = pd.to_datetime(df_mod['fecha_vencimiento'], errors='coerce')
+    df_mod['dias_hasta_vencimiento'] = (df_mod['fecha_vencimiento'] - pd.to_datetime(hoy)).dt.days
+
+    rangos_vencimiento = {
+        'Vencido': (-9999, -1),
+        'Vence este mes': (0, 30),
+        'Vence próximo mes': (31, 60),
+        'Vence en 2 meses': (61, 90)
+    }
+
+    proyeccion = {}
+    for condicion in df_mod['condicion_display'].unique():
+        datos_cond = df_mod[df_mod['condicion_display'] == condicion]
+        proy_cond = {}
+        for rango, (min_dias, max_dias) in rangos_vencimiento.items():
+            if max_dias == 9999:
+                datos_rango = datos_cond[datos_cond['dias_hasta_vencimiento'] >= min_dias]
+            else:
+                datos_rango = datos_cond[
+                    (datos_cond['dias_hasta_vencimiento'] >= min_dias) &
+                    (datos_cond['dias_hasta_vencimiento'] <= max_dias)
+                ]
+            proy_cond[rango] = datos_rango['total_cop'].sum()
+        proyeccion[condicion] = proy_cond
+
+    df_proy = pd.DataFrame(proyeccion).T.fillna(0)
+    totales_cond = df_proy.sum(axis=1)
+    condiciones_con_valor = totales_cond[totales_cond > 0].index
+    df_proy = df_proy.loc[condiciones_con_valor]
+
+    if df_proy.empty:
+        return None
+
+    # Ordenar por total de mayor a menor
+    df_proy = df_proy.loc[totales_cond.sort_values(ascending=False).index]
+
+    condiciones = df_proy.index.tolist()
+    rangos = list(rangos_vencimiento.keys())
+    colores = ['#ef4444', '#f59e0b', '#eab308', '#84cc16']
+
+    fig = go.Figure()
+    for i, rango in enumerate(rangos):
+        if rango in df_proy.columns:
+            valores = df_proy[rango].values / 1e6
+            fig.add_trace(go.Bar(
+                name=rango,
+                x=condiciones,
+                y=valores,
+                marker_color=colores[i % len(colores)],
+                hovertemplate='<b>%{x}</b><br>Rango: %{meta[0]}<br>Valor: $%{y:.1f}M<extra></extra>',
+                meta=[rango] * len(condiciones)
+            ))
+
+    fig.update_layout(
+        barmode='stack',
+        height=500,
+        title="Proyección de Vencimientos - Condiciones Reales",
+        xaxis_title="Condición de Pago",
+        yaxis_title="Valor COP (Millones)",
+        template="plotly_dark",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5)
+    )
+    fig.update_yaxes(tickprefix="$", ticksuffix="M")
+    fig.update_xaxes(tickangle=45)
+    return fig
+
+
+# ------------------------------------------------------------
+# GENERADOR DE REPORTE HTML
+# ------------------------------------------------------------
+
 def generar_reporte_html(df_filtrado, graficas_activas, filtros_aplicados=None):
-    """Genera el reporte ejecutivo con la lógica exacta del dashboard de ALPAPEL"""
+    """Genera reporte ejecutivo con las gráficas idénticas al dashboard"""
     if df_filtrado.empty:
         return None
 
-    # --- 1. TÍTULO DINÁMICO ---
+    # Título dinámico
     tipo_reporte = "REPORTE GENERAL DE CARTERA"
     detalles = []
     if filtros_aplicados:
         v = filtros_aplicados.get('vendedor')
-        if v and v not in ["Todos los vendedores", "Todos"]: detalles.append(f"Vendedor: {v}")
+        if v and v not in ["Todos los vendedores", "Todos"]:
+            detalles.append(f"Vendedor: {v}")
         c = filtros_aplicados.get('ciudad')
-        if c and c not in ["Todas las ciudades", "Todas"]: detalles.append(f"Ciudad: {c}")
+        if c and c not in ["Todas las ciudades", "Todas"]:
+            detalles.append(f"Ciudad: {c}")
         cd = filtros_aplicados.get('condicion')
-        if cd and cd not in ["Todas las condiciones"]: detalles.append(f"Condición: {cd}")
+        if cd and cd not in ["Todas las condiciones"]:
+            detalles.append(f"Condición: {cd}")
         d = filtros_aplicados.get('dias')
-        if d and d not in ["Todos los días"]: detalles.append(f"Tramo: {d}")
-        
-        if detalles: tipo_reporte = "REPORTE DE CARTERA PARTICULAR"
-    
+        if d and d not in ["Todos los días"]:
+            detalles.append(f"Tramo: {d}")
+
+        if detalles:
+            tipo_reporte = "REPORTE DE CARTERA PARTICULAR"
+
     texto_filtros = " / ".join(detalles) if detalles else "Consolidado Completo de la Compañía"
 
-    # --- 2. LOGO ---
+    # Logo
     base_dir = os.path.dirname(os.path.abspath(__file__))
     logo_path = os.path.join(base_dir, "assets", "logo_login.png")
     logo_b64 = ""
@@ -36,7 +633,7 @@ def generar_reporte_html(df_filtrado, graficas_activas, filtros_aplicados=None):
         with open(logo_path, "rb") as f:
             logo_b64 = base64.b64encode(f.read()).decode()
 
-    # --- 3. MÉTRICAS ---
+    # Métricas
     total_cartera = df_filtrado['total_cop'].sum()
     mora_cartera = df_filtrado[df_filtrado['dias_vencidos'] > 0]['total_cop'].sum()
     porc_mora = (mora_cartera / total_cartera * 100) if total_cartera > 0 else 0
@@ -44,7 +641,7 @@ def generar_reporte_html(df_filtrado, graficas_activas, filtros_aplicados=None):
     clientes_mora = df_filtrado[df_filtrado['dias_vencidos'] > 0]['nit_cliente'].nunique()
     porc_cl_mora = (clientes_mora / total_clientes * 100) if total_clientes > 0 else 0
 
-    # --- 4. HTML HEADER ---
+    # HTML base
     html = f"""
     <!DOCTYPE html>
     <html lang="es">
@@ -67,6 +664,12 @@ def generar_reporte_html(df_filtrado, graficas_activas, filtros_aplicados=None):
             .chart-card {{ margin-top: 50px; background: #fff; padding: 20px; border: 1px solid #f1f5f9; border-radius: 10px; page-break-inside: avoid; }}
             .chart-card h3 {{ color: #334155; border-left: 6px solid #00B3B0; padding-left: 15px; text-align: left; margin-bottom: 25px; font-size: 20px; }}
             .footer {{ text-align: center; margin-top: 60px; font-size: 11px; color: #94a3b8; border-top: 1px solid #eee; padding-top: 20px; }}
+            @media print {{
+                body {{ background: white; padding: 20px; }}
+                .container {{ box-shadow: none; padding: 20px; }}
+                .chart-card {{ break-inside: avoid; }}
+                .metric-card {{ break-inside: avoid; }}
+            }}
         </style>
     </head>
     <body>
@@ -94,107 +697,57 @@ def generar_reporte_html(df_filtrado, graficas_activas, filtros_aplicados=None):
                     <div class="metric-title">CARTERA EN MORA</div>
                     <div class="metric-value">${mora_cartera:,.0f}</div>
                     <div class="metric-sub">{porc_mora:.1f}% de la Cartera</div>
+                    <div class="metric-title" style="margin-top:5px;">Clientes en mora: {clientes_mora} ({porc_cl_mora:.1f}%)</div>
                 </div>
             </div>
     """
 
-    # --- 5. GENERACIÓN DE GRÁFICAS (CON TU LÓGICA EXACTA) ---
-    mapeo_nombres = {
-        'chart1': 'Distribución por Estado', 'chart2': 'Top 10 Clientes Mora',
-        'chart3': 'Cartera por Vendedor', 'chart4': 'Condiciones de Pago',
-        'chart5': 'Evolución + Proyección', 'chart6': 'Concentración 20/80',
-        'chart7': 'Envejecimiento Detallado', 'chart8': 'Análisis Geográfico',
-        'chart9': 'Proyección por Crédito'
+    # Mapeo de nombres para títulos
+    nombres_graficas = {
+        'chart1': '📊 Distribución por Estado',
+        'chart2': '⚠️ Top 10 Clientes Mora',
+        'chart3': '👥 Cartera por Vendedor',
+        'chart4': '💰 Condiciones de Pago',
+        'chart5': '📅 Evolución + Proyección',
+        'chart6': '📊 Concentración 20/80',
+        'chart7': '📈 Envejecimiento Detallado',
+        'chart8': '🏙️ Análisis Geográfico',
+        'chart9': '💰 Proyección por Crédito'
+    }
+
+    # Mapeo de funciones
+    funciones = {
+        'chart1': _grafica_distribucion_estado,
+        'chart2': _grafica_top_clientes_mora,
+        'chart3': _grafica_cartera_vendedor_condiciones,
+        'chart4': _grafica_condiciones_pago,
+        'chart5': _grafica_evolucion_proyeccion,
+        'chart6': _grafica_concentracion_cartera,
+        'chart7': _grafica_envejecimiento_detallado,
+        'chart8': _grafica_analisis_geografico,
+        'chart9': _grafica_proyeccion_credito
     }
 
     for chart_id in graficas_activas:
-        fig = None
-        if chart_id == 'chart1': fig = fig_chart1(df_filtrado)
-        elif chart_id == 'chart2': fig = fig_chart2(df_filtrado)
-        elif chart_id == 'chart3': fig = fig_chart3(df_filtrado)
-        elif chart_id == 'chart4': fig = fig_chart4(df_filtrado)
-        elif chart_id == 'chart5': fig = fig_chart5(df_filtrado)
-        elif chart_id == 'chart6': fig = fig_chart6(df_filtrado)
-        elif chart_id == 'chart7': fig = fig_chart7(df_filtrado)
-        elif chart_id == 'chart8': fig = fig_chart8(df_filtrado)
-        elif chart_id == 'chart9': fig = fig_chart9(df_filtrado)
+        if chart_id in funciones:
+            fig = funciones[chart_id](df_filtrado)
+            if fig:
+                # Convertir la figura a HTML (sin incluir plotly.js de nuevo)
+                chart_html = fig.to_html(full_html=False, include_plotlyjs=False)
+                html += f"""
+                <div class="chart-card">
+                    <h3>{nombres_graficas[chart_id]}</h3>
+                    {chart_html}
+                </div>
+                """
 
-        if fig:
-            fig.update_layout(template="plotly_white", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-            chart_html = fig.to_html(full_html=False, include_plotlyjs=False)
-            html += f"""<div class="chart-card"><h3>{mapeo_nombres[chart_id]}</h3>{chart_html}</div>"""
-
-    html += """<div class="footer">ALPAPEL S.A.S. - Confidencial</div></div></body></html>"""
+    html += """
+            <div class="footer">
+                ALPAPEL S.A.S. - Confidencial<br>
+                Reporte generado automáticamente.
+            </div>
+        </div>
+    </body>
+    </html>
+    """
     return html
-
-# --- BLOQUE DE FUNCIONES MATEMÁTICAS (Sincronizadas con tu módulo) ---
-
-def fig_chart1(d):
-    cat = ['Corriente', '1-30 días', '31-60 días', '61-90 días', '+90 días']
-    val = [d[d['dias_vencidos'] == 0]['total_cop'].sum(),
-           d[(d['dias_vencidos'] >= 1) & (d['dias_vencidos'] <= 30)]['total_cop'].sum(),
-           d[(d['dias_vencidos'] >= 31) & (d['dias_vencidos'] <= 60)]['total_cop'].sum(),
-           d[(d['dias_vencidos'] >= 61) & (d['dias_vencidos'] <= 90)]['total_cop'].sum(),
-           d[d['dias_vencidos'] > 90]['total_cop'].sum()]
-    fig = go.Figure(go.Bar(x=cat, y=val, marker_color='#00B3B0'))
-    fig.update_yaxes(tickprefix="$", tickformat=".0s")
-    return fig
-
-def fig_chart2(d):
-    top = d[d['dias_vencidos'] > 0].groupby('razon_social_cliente')['total_cop'].sum().nlargest(10).iloc[::-1]
-    return go.Figure(go.Bar(y=top.index, x=top.values, orientation='h', marker_color='#ef4444'))
-
-def fig_chart3(d):
-    d2 = d.copy()
-    d2['cond_display'] = d2['condicion_pago'].apply(lambda x: 'CONTADO' if str(x).upper() in ['CO1', 'CON'] else str(x))
-    piv = d2.groupby(['nombre_vendedor', 'cond_display'])['total_cop'].sum().unstack().fillna(0)
-    piv = piv.loc[piv.sum(axis=1).sort_values(ascending=False).index].head(10)
-    fig = go.Figure()
-    for col in piv.columns:
-        fig.add_trace(go.Bar(name=col, x=piv.index, y=piv[col]))
-    fig.update_layout(barmode='stack')
-    return fig
-
-def fig_chart4(d):
-    d2 = d.copy()
-    d2['cond_display'] = d2['condicion_pago'].apply(lambda x: 'CONTADO' if str(x).upper() in ['CO1', 'CON'] else str(x))
-    dist = d2.groupby('cond_display')['total_cop'].sum().sort_values(ascending=True)
-    return go.Figure(go.Bar(y=dist.index, x=dist.values, orientation='h', marker_color='#00B3B0'))
-
-def fig_chart5(d):
-    # Simplificado para reporte pero basado en fechas reales
-    d['mes'] = pd.to_datetime(d['fecha_vencimiento']).dt.strftime('%Y-%m')
-    evol = d.groupby('mes')['total_cop'].sum().sort_index()
-    return go.Figure(go.Scatter(x=evol.index, y=evol.values, mode='lines+markers', fill='tozeroy', line=dict(color='#00B3B0')))
-
-def fig_chart6(d):
-    c_pc = d.groupby('razon_social_cliente')['total_cop'].sum().sort_values(ascending=False)
-    total = c_pc.sum()
-    acum = c_pc.cumsum()
-    c20 = len(acum[acum <= total * 0.2])
-    fig = make_subplots(rows=1, cols=2, specs=[[{"type": "bar"}, {"type": "bar"}]])
-    fig.add_trace(go.Bar(y=c_pc.head(10).index, x=c_pc.head(10).values, orientation='h'), row=1, col=1)
-    fig.add_trace(go.Bar(x=['Top Clientes', 'Resto'], y=[acum.iloc[c20] if c20 < len(acum) else total, total - (acum.iloc[c20] if c20 < len(acum) else total)]), row=1, col=2)
-    return fig
-
-def fig_chart7(d):
-    rangos = {'Corriente': (0, 0), '1-30': (1, 30), '31-60': (31, 60), '+60': (61, 9999)}
-    res = {k: d[(d['dias_vencidos'] >= v[0]) & (d['dias_vencidos'] <= v[1])]['total_cop'].sum() for k, v in rangos.items()}
-    return go.Figure(go.Pie(labels=list(res.keys()), values=list(res.values()), hole=0.3))
-
-def fig_chart8(d):
-    # Asume que ya viene con ciudad si se filtró, sino usa genérico
-    if 'ciudad' in d.columns:
-        geo = d.groupby('ciudad')['total_cop'].sum().nlargest(10).sort_values()
-        return go.Figure(go.Bar(y=geo.index, x=geo.values, orientation='h', marker_color='#3b82f6'))
-    return fig_chart1(d)
-
-def fig_chart9(d):
-    # Lógica de 4 rangos de vencimiento futuro
-    hoy = datetime.now().date()
-    d['fv'] = pd.to_datetime(d['fecha_vencimiento']).dt.date
-    vencido = d[d['fv'] < hoy]['total_cop'].sum()
-    m1 = d[(d['fv'] >= hoy) & (d['fv'] <= hoy + timedelta(30))]['total_cop'].sum()
-    m2 = d[(d['fv'] > hoy + timedelta(30)) & (d['fv'] <= hoy + timedelta(60))]['total_cop'].sum()
-    m3 = d[d['fv'] > hoy + timedelta(60)]['total_cop'].sum()
-    return go.Figure(go.Bar(x=['Vencido', '0-30 días', '31-60 días', '+60 días'], y=[vencido, m1, m2, m3], marker_color='#f59e0b'))
